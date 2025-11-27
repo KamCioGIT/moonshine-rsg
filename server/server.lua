@@ -380,12 +380,17 @@ end)
 
 -- Usable Items
 RSGCore.Functions.CreateUseableItem(Config.brewProp, function(source, item)
+    print('rsg-moonshiner: Server - Used item', Config.brewProp)
     local src = source
     local Player = RSGCore.Functions.GetPlayer(src)
-    if not Player then return end
+    if not Player then 
+        print('rsg-moonshiner: Server - Player not found')
+        return 
+    end
     
     Player.Functions.RemoveItem(Config.brewProp, 1)
     TriggerClientEvent('inventory:client:ItemBox', src, RSGCore.Shared.Items[Config.brewProp], "remove", 1)
+    print('rsg-moonshiner: Server - Triggering client event placeProp')
     TriggerClientEvent('rsg-moonshiner:client:placeProp', src, Config.brewProp)
 end)
 
@@ -414,3 +419,20 @@ end)
 --         end
 --     end)
 -- end)
+
+-- Alert Police
+RegisterNetEvent('rsg-moonshiner:server:alertPolice', function(coords)
+    local src = source
+    local players = RSGCore.Functions.GetPlayers()
+    
+    for i = 1, #players do
+        local player = RSGCore.Functions.GetPlayer(players[i])
+        if player then
+            local job = player.PlayerData.job.name
+            if job == 'police' or job == 'sheriff' or job == 'marshal' then
+                TriggerClientEvent('rsg-moonshiner:client:policeAlert', players[i], coords)
+                TriggerClientEvent('ox_lib:notify', players[i], { title = 'Dispatch', description = 'Illegal moonshine activity reported!', type = 'error', duration = 5000 })
+            end
+        end
+    end
+end)

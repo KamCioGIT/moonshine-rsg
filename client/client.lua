@@ -1,4 +1,5 @@
 local RSGCore = exports['rsg-core']:GetCoreObject()
+print('rsg-moonshiner: Client script loaded')
 local still = 0
 local actualBrewingTime = 0
 local timeToBrew = 0
@@ -151,20 +152,31 @@ end
 
 -- Place Prop
 RegisterNetEvent('rsg-moonshiner:client:placeProp', function(propName)
+    print('rsg-moonshiner: placeProp called with', propName)
     local playerPed = PlayerPedId()
     local coords = GetEntityCoords(playerPed)
     local heading = GetEntityHeading(playerPed)
     local object = GetHashKey(propName)
-    
+
+    print('rsg-moonshiner: Requesting model', propName, object)
     if not HasModelLoaded(object) then
         RequestModel(object)
-        while not HasModelLoaded(object) do
-            Wait(1)
+        local timeout = 0
+        while not HasModelLoaded(object) and timeout < 5000 do
+            Wait(10)
+            timeout = timeout + 10
+        end
+        if not HasModelLoaded(object) then
+            print('rsg-moonshiner: Failed to load model', propName)
+            Notify('Failed to load model: ' .. propName, 'error')
+            return
         end
     end
     
+    print('rsg-moonshiner: Model loaded, creating object')
     inplacing = true
     local tempObj = CreateObject(object, coords.x, coords.y, coords.z, false, false, false)
+    print('rsg-moonshiner: Object created', tempObj)
     SetEntityHeading(tempObj, heading)
     SetEntityAlpha(tempObj, 150, false)
     
@@ -305,6 +317,10 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
     print("Moonshiner Client: Starting brewing process")
     isBrewing = true
     local brewTime = moonshineData.brewTime * 60 * 1000
+    
+    -- Alert Police
+    local coords = GetEntityCoords(PlayerPedId())
+    TriggerServerEvent('rsg-moonshiner:server:alertPolice', coords)
     
     if lib.progressBar({
         duration = brewTime,
@@ -505,4 +521,25 @@ RegisterNetEvent('rsg-moonshiner:client:drinkMoonshine', function(level)
             end
         end)
     end
+end)
+
+-- Police Alert Blip
+RegisterNetEvent('rsg-moonshiner:client:policeAlert', function(coords)
+    local blip = Citizen.InvokeNative(0x45f13b7e0a15c880, -1282792512, coords.x, coords.y, coords.z, 50.0) -- BLIP_STYLE_AREA
+    SetBlipSprite(blip, -1282792512) -- BLIP_STYLE_AREA
+    SetBlipAlpha(blip, 150)
+    SetBlipScale(blip, 1.0)
+    
+    -- Red color for illegal activity
+    -- Citizen.InvokeNative(0x662D364AB216DE2R, blip, 0x95933492) -- BLIP_MODIFIER_MP_COLOR_32 (Red) -- FIXED: Invalid hex 'R'
+    
+    -- Add text to blip
+    local blipName = CreateVarString(10, 'LITERAL_STRING', "Illegal Moonshine Activity")
+    SetBlipName(blip, blipName)
+    
+    -- Remove blip after 2 minutes
+    CreateThread(function()
+        Wait(120000) -- 2 minutes
+        RemoveBlip(blip)
+    end)
 end)
