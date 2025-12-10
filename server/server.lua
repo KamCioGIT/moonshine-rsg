@@ -1,17 +1,18 @@
+--[[
+    Moonshiner System by devchacha
+    Server Script
+]]
+
 local RSGCore = exports['rsg-core']:GetCoreObject()
 
--- Track props in use (key = "x_y_z", value = player source)
 local propsInUse = {}
 
--- Clear all moonshiner props on server/resource start
--- This ensures stills and barrels don't persist after restart
 AddEventHandler('onResourceStart', function(resourceName)
     if GetCurrentResourceName() == resourceName then
-        print('[rsg-moonshiner] Resource started - Clearing all placed stills and barrels from database...')
+        print('[Moonshiner] Resource started - Clearing database...')
         MySQL.update('DELETE FROM moonshiner', {}, function(affectedRows)
-            print('[rsg-moonshiner] Cleared ' .. (affectedRows or 0) .. ' props from database')
+            print('[Moonshiner] Cleared ' .. (affectedRows or 0) .. ' props')
         end)
-        -- Also clear any prop locks
         propsInUse = {}
     end
 end)
@@ -282,19 +283,29 @@ end)
 -- Get Coords ID For Destroy
 RegisterNetEvent('rsg-moonshiner:server:getCoordsIdForDestroy', function(x, y, z)
     local src = source
-    MySQL.query('SELECT * FROM moonshiner', {}, function(result)
+    MySQL.query('SELECT * FROM moonshiner WHERE object = ?', {Config.brewProp}, function(result)
         if result and #result > 0 then
             for _, v in pairs(result) do
                 TriggerClientEvent('rsg-moonshiner:client:checkDestroyDist', src, x, y, z, v.id, v.object, v.xpos, v.ypos, v.zpos)
             end
+        else
+            TriggerClientEvent('ox_lib:notify', src, {
+                title = 'Moonshiner',
+                description = 'No still found nearby',
+                type = 'error',
+                duration = 3000
+            })
         end
     end)
 end)
 
+
 -- Execute Destroy (Modify DB)
 RegisterNetEvent('rsg-moonshiner:server:executeDestroy', function(id)
-    MySQL.update('UPDATE moonshiner SET actif = 0 WHERE id = ?', {id})
+    MySQL.query('DELETE FROM moonshiner WHERE id = ?', {id})
+    print('[Moonshiner] Still destroyed and removed from database - ID: ' .. id)
 end)
+
 
 -- Get Object ID
 RegisterNetEvent('rsg-moonshiner:server:getObjectId', function(object, x, y, z)

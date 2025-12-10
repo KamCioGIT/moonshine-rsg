@@ -1,5 +1,10 @@
+--[[
+    Moonshiner System by devchacha
+    Client Script
+]]
+
 local RSGCore = exports['rsg-core']:GetCoreObject()
-print('rsg-moonshiner: Client script loaded')
+
 local still = 0
 local actualBrewingTime = 0
 local timeToBrew = 0
@@ -454,16 +459,16 @@ RegisterNetEvent('rsg-moonshiner:client:checkDestroyDist', function(x, y, z, id,
     local coords = GetEntityCoords(PlayerPedId())
     local dist = #(coords - vector3(propX, propY, propZ))
     
-    if dist <= 2.0 then
+    if dist <= 5.0 then
         TriggerEvent('rsg-moonshiner:client:startDestroySequence', id, object, propX, propY, propZ)
     end
 end)
+
 
 -- Start Destroy Sequence
 RegisterNetEvent('rsg-moonshiner:client:startDestroySequence', function(id, object, x, y, z)
     Notify("RUN! 10 SECONDS UNTIL EXPLOSION!", "error")
     
-    -- Visual Pulse Effect?
     AnimpostfxPlay("CamPushInJust")
     
     local countdown = 10
@@ -475,17 +480,18 @@ RegisterNetEvent('rsg-moonshiner:client:startDestroySequence', function(id, obje
     
     AnimpostfxStop("CamPushInJust")
     
-    -- Explosion (Type 22 = Dynamite)
     AddExplosion(x, y, z, 22, 5.0, true, false, 1.0)
     
-    local prop = GetClosestObjectOfType(x, y, z, 2.0, GetHashKey(object), false, false, false)
+    local prop = GetClosestObjectOfType(x, y, z, 5.0, GetHashKey(object), false, false, false)
     if DoesEntityExist(prop) then
+        activeSmoke[prop] = nil
         DeleteObject(prop)
     end
     
     TriggerServerEvent('rsg-moonshiner:server:executeDestroy', id)
     Notify("Still destroyed!", "success")
 end)
+
 
 -- Delete Prop
 RegisterNetEvent('rsg-moonshiner:client:deleteProp', function(id, object, xpos, ypos, zpos)
@@ -604,61 +610,42 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
             end
             
             if HasNamedPtfxAssetLoaded("core") then
-                print("Moonshiner: Core asset loaded, creating smoke at coords: " .. 
-                    tostring(stillCoords.x) .. ", " .. tostring(stillCoords.y) .. ", " .. tostring(stillCoords.z))
+                local smokeHandles = {}
                 
-                -- Use DARK exhaust smoke rotated to go UPWARD
-                -- Combined with chimney smoke for rising effect
+                for i = 1, 3 do
+                    UseParticleFxAsset("core")
+                    local height = (i - 1) * 15.0
+                    
+                    local handle = StartParticleFxLoopedAtCoord(
+                        "ent_amb_exhaust_thick",
+                        stillCoords.x,
+                        stillCoords.y,
+                        stillCoords.z + height,
+                        -90.0, 0.0, 0.0,
+                        40.0,
+                        false, false, false, false
+                    )
+                    
+                    if handle and handle > 0 then
+                        table.insert(smokeHandles, handle)
+                    end
+                end
                 
-                local smokeHandle1 = 0
-                local smokeHandle2 = 0
-                
-                -- First: Dark black smoke rotated to go UP (pitch -90)
-                UseParticleFxAsset("core")
-                smokeHandle1 = StartParticleFxLoopedAtCoord(
-                    "ent_amb_exhaust_thick",  -- Dark black smoke
-                    stillCoords.x,
-                    stillCoords.y,
-                    stillCoords.z + 1.0,
-                    -90.0, 0.0, 0.0,          -- Rotated to point UP!
-                    25.0,
-                    false, false, false, false
-                )
-                print("Moonshiner: Dark smoke (rotated up) handle: " .. tostring(smokeHandle1))
-                
-                -- Second: Add chimney smoke on top for rising effect
-                UseParticleFxAsset("core")  
-                smokeHandle2 = StartParticleFxLoopedAtCoord(
-                    "ent_amb_smoke_chimney",  -- Rising chimney smoke
-                    stillCoords.x,
-                    stillCoords.y,
-                    stillCoords.z + 3.0,      -- Higher up
-                    0.0, 0.0, 0.0,
-                    40.0,                      -- Large scale
-                    false, false, false, false
-                )
-                print("Moonshiner: Chimney smoke handle: " .. tostring(smokeHandle2))
-                
-                -- Keep thread alive while still exists
                 while activeSmoke[stillEntity] and DoesEntityExist(stillEntity) do
                     Wait(1000)
                 end
                 
-                -- Stop particles when still is destroyed
-                if smokeHandle1 and smokeHandle1 > 0 then
-                    StopParticleFxLooped(smokeHandle1, false)
+                for _, handle in ipairs(smokeHandles) do
+                    if handle and handle > 0 then
+                        StopParticleFxLooped(handle, false)
+                    end
                 end
-                if smokeHandle2 and smokeHandle2 > 0 then
-                    StopParticleFxLooped(smokeHandle2, false)
-                end
-
                 
-                print("Moonshiner: Smoke stopped - still no longer exists")
                 activeSmoke[stillEntity] = nil
             else
-                print("Moonshiner: Could not load particle asset")
                 activeSmoke[stillEntity] = nil
             end
+
 
 
 
