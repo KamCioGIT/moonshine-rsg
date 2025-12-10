@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moonshine UI</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="script.js" defer></script>
+</head>
+
+<body>
+    <div id="app">
+        <!-- Menu Interface -->
+        <div id="menu-interface" class="interface hidden">
+            <div class="parchment-bg">
+                <div class="header">
+                    <h1 id="menu-title">Moonshine Still</h1>
+                    <div class="separator"></div>
+                </div>
+                <div id="menu-options-list" class="options-list">
+                    <!-- Options injected here -->
+                </div>
+                <div class="footer">
+                    <span class="key-hint">[Up/Down] Navigate</span>
+                    <span class="key-hint">[Enter] Select</span>
+                    <span class="key-hint">[Backspace] Close</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Progress Bar Interface -->
+        <div id="progress-interface" class="interface hidden">
+            <div class="progress-box">
+                <h2 id="progress-label">Brewing Moonshine...</h2>
+                <div class="progress-bar-container">
+                    <div class="progress-bar-fill" id="progress-fill"></div>
+                </div>
+                <div class="progress-percentage" id="progress-text">0%</div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

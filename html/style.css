@@ -1,0 +1,217 @@
+@import url('https://fonts.googleapis.com/css2?family=Rye&family=Sancreek&display=swap');
+
+body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    overflow: hidden;
+    user-select: none;
+    font-family: 'Rye', serif;
+}
+
+#app {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: none;
+    /* Let clicks pass through empty space */
+}
+
+.interface {
+    pointer-events: auto;
+    position: absolute;
+    transition: opacity 0.3s;
+}
+
+.hidden {
+    display: none !important;
+    opacity: 0;
+}
+
+/* Menu Styles */
+#menu-interface {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 500px;
+    height: auto;
+    min-height: 400px;
+    max-height: 700px;
+}
+
+.parchment-bg {
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+    background-image: url('img/bg.png');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    padding: 60px 60px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    color: #3e2f22;
+    text-shadow: 0px 1px 0px rgba(255, 255, 255, 0.4);
+    filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.5));
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.header h1 {
+    font-size: 32px;
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 2px solid #3e2f22;
+    padding-bottom: 10px;
+}
+
+.options-list {
+    flex: 1;
+    overflow-y: auto;
+    padding-right: 5px;
+    margin-bottom: 20px;
+    max-height: 400px;
+}
+
+.menu-option {
+    padding: 12px 15px;
+    margin-bottom: 8px;
+    background: rgba(62, 47, 34, 0.05);
+    border: 1px dashed rgba(62, 47, 34, 0.3);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: 'Sancreek', serif;
+    font-size: 20px;
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+}
+
+.menu-option .title {
+    font-weight: bold;
+}
+
+.menu-option .description {
+    font-size: 14px;
+    font-family: 'Courier New', Courier, monospace;
+    opacity: 0.8;
+    margin-top: 4px;
+}
+
+.menu-option:hover,
+.menu-option.selected {
+    background: rgba(62, 47, 34, 0.85);
+    color: #e6d2b5;
+    border-style: solid;
+    border-color: #2c2319;
+    transform: scale(1.02);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    text-shadow: none;
+}
+
+.footer {
+    text-align: center;
+    font-size: 14px;
+    opacity: 0.9;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+    border-top: 1px solid rgba(62, 47, 34, 0.3);
+    padding-top: 10px;
+}
+
+.key-hint {
+    margin: 0 8px;
+    display: inline-block;
+}
+
+/* Scrollbar */
+.options-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.options-list::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.options-list::-webkit-scrollbar-thumb {
+    background: #3e2f22;
+    border-radius: 3px;
+}
+
+/* Progress Bar Styles */
+#progress-interface {
+    bottom: 10%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 450px;
+    pointer-events: none;
+}
+
+.progress-box {
+    background-image: url('img/bg.png');
+    /* Tiled or stretched */
+    background-size: 100% 100%;
+    padding: 25px 40px;
+    border-radius: 2px;
+    /* Rough edges simulation done via image normally */
+    text-align: center;
+    color: #3e2f22;
+    filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.6));
+    position: relative;
+}
+
+/* Decorate the progress box with a bottle icon on the side */
+.progress-box::before {
+    content: '';
+    position: absolute;
+    left: -30px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 60px;
+    height: 60px;
+    background-image: url('img/bottle.png');
+    background-size: contain;
+    background-repeat: no-repeat;
+    filter: drop-shadow(2px 2px 2px rgba(0, 0, 0, 0.3));
+}
+
+#progress-label {
+    margin: 0 0 10px 0;
+    font-size: 22px;
+    text-transform: uppercase;
+    font-weight: normal;
+}
+
+.progress-bar-container {
+    width: 100%;
+    height: 24px;
+    background: rgba(62, 47, 34, 0.2);
+    border: 2px solid #3e2f22;
+    border-radius: 4px;
+    padding: 2px;
+    box-sizing: border-box;
+}
+
+.progress-bar-fill {
+    width: 0%;
+    height: 100%;
+    background: #5c2018;
+    /* Moonshine reddish/brown?? or Amber */
+    background: linear-gradient(to right, #8a5a2b, #c49156);
+    border-radius: 2px;
+    box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.3);
+    transition: width 0.1s linear;
+}
+
+#progress-text {
+    margin-top: 5px;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: bold;
+    font-size: 16px;
+}

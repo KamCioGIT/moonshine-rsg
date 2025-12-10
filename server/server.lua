@@ -1,5 +1,71 @@
 local RSGCore = exports['rsg-core']:GetCoreObject()
 
+-- Track props in use (key = "x_y_z", value = player source)
+local propsInUse = {}
+
+-- Clear all moonshiner props on server/resource start
+-- This ensures stills and barrels don't persist after restart
+AddEventHandler('onResourceStart', function(resourceName)
+    if GetCurrentResourceName() == resourceName then
+        print('[rsg-moonshiner] Resource started - Clearing all placed stills and barrels from database...')
+        MySQL.update('DELETE FROM moonshiner', {}, function(affectedRows)
+            print('[rsg-moonshiner] Cleared ' .. (affectedRows or 0) .. ' props from database')
+        end)
+        -- Also clear any prop locks
+        propsInUse = {}
+    end
+end)
+
+-- Helper function to generate prop key from coords
+local function GetPropKey(x, y, z)
+    return string.format("%.1f_%.1f_%.1f", x, y, z)
+end
+
+-- Check if prop is in use
+RegisterNetEvent('rsg-moonshiner:server:checkPropInUse', function(x, y, z)
+    local src = source
+    local key = GetPropKey(x, y, z)
+    
+    if propsInUse[key] and propsInUse[key] ~= src then
+        -- Prop is in use by another player
+        TriggerClientEvent('rsg-moonshiner:client:propInUseResult', src, true, propsInUse[key])
+    else
+        -- Prop is available
+        TriggerClientEvent('rsg-moonshiner:client:propInUseResult', src, false, nil)
+    end
+end)
+
+-- Lock prop for player
+RegisterNetEvent('rsg-moonshiner:server:lockProp', function(x, y, z)
+    local src = source
+    local key = GetPropKey(x, y, z)
+    propsInUse[key] = src
+    print('[rsg-moonshiner] Player ' .. src .. ' locked prop at ' .. key)
+end)
+
+-- Unlock prop
+RegisterNetEvent('rsg-moonshiner:server:unlockProp', function(x, y, z)
+    local src = source
+    local key = GetPropKey(x, y, z)
+    if propsInUse[key] == src then
+        propsInUse[key] = nil
+        print('[rsg-moonshiner] Player ' .. src .. ' unlocked prop at ' .. key)
+    end
+end)
+
+-- Cleanup when player disconnects - remove their prop locks
+AddEventHandler('playerDropped', function()
+    local src = source
+    for key, playerSrc in pairs(propsInUse) do
+        if playerSrc == src then
+            propsInUse[key] = nil
+            print('[rsg-moonshiner] Auto-unlocked prop at ' .. key .. ' (player disconnected)')
+        end
+    end
+end)
+
+
+
 -- Check Mash Items
 RegisterNetEvent('rsg-moonshiner:server:checkMashItems', function(mash, mashData)
     local src = source
@@ -168,27 +234,23 @@ end)
 RegisterNetEvent('rsg-moonshiner:server:placeProp', function(propName, xpos, ypos, zpos)
     local src = source
     
-    -- Props are temporary and will disappear on server restart
-    -- MySQL.insert('INSERT INTO moonshiner (object, xpos, ypos, zpos, actif) VALUES (?, ?, ?, ?, ?)', {
-    --     propName,
-    --     xpos,
-    --     ypos,
-    --     zpos,
-    --     1
-    -- }, function(id)
-    --     if id then
-    --         TriggerClientEvent('rsg-moonshiner:client:replaceProps', -1, propName, xpos, ypos, zpos, 1)
-    --     end
-    -- end)
-    
-    -- Just sync to all clients without saving
-    TriggerClientEvent('rsg-moonshiner:client:replaceProps', -1, propName, xpos, ypos, zpos, 1)
+    -- Save to database
+    MySQL.insert('INSERT INTO moonshiner (object, xpos, ypos, zpos, actif) VALUES (?, ?, ?, ?, ?)', {
+        propName,
+        xpos,
+        ypos,
+        zpos,
+        1
+    }, function(id)
+        if id then
+            TriggerClientEvent('rsg-moonshiner:client:replaceProps', -1, propName, xpos, ypos, zpos, 1)
+        end
+    end)
 end)
 
 -- Remove Prop (Temporary - doesn't save to database)
 RegisterNetEvent('rsg-moonshiner:server:removeProp', function(id)
-    -- MySQL.query('DELETE FROM moonshiner WHERE id = ?', {id})
-    -- Props are temporary, no database cleanup needed
+    MySQL.query('DELETE FROM moonshiner WHERE id = ?', {id})
 end)
 
 -- Update Props
@@ -215,6 +277,23 @@ RegisterNetEvent('rsg-moonshiner:server:getCoordsId', function(x, y, z)
             end
         end
     end)
+end)
+
+-- Get Coords ID For Destroy
+RegisterNetEvent('rsg-moonshiner:server:getCoordsIdForDestroy', function(x, y, z)
+    local src = source
+    MySQL.query('SELECT * FROM moonshiner', {}, function(result)
+        if result and #result > 0 then
+            for _, v in pairs(result) do
+                TriggerClientEvent('rsg-moonshiner:client:checkDestroyDist', src, x, y, z, v.id, v.object, v.xpos, v.ypos, v.zpos)
+            end
+        end
+    end)
+end)
+
+-- Execute Destroy (Modify DB)
+RegisterNetEvent('rsg-moonshiner:server:executeDestroy', function(id)
+    MySQL.update('UPDATE moonshiner SET actif = 0 WHERE id = ?', {id})
 end)
 
 -- Get Object ID
@@ -378,6 +457,34 @@ AddEventHandler('playerDropped', function()
     drunkPlayers[src] = nil
 end)
 
+-- Sell to NPC (from selling.lua)
+RegisterNetEvent('rsg-moonshiner:server:sellToNPC', function(item, amount, price)
+    local src = source
+    local Player = RSGCore.Functions.GetPlayer(src)
+    if not Player then return end
+    
+    -- Verify item
+    local hasItem = Player.Functions.GetItemByName(item)
+    if hasItem and hasItem.amount >= amount then
+        -- Remove Item
+        Player.Functions.RemoveItem(item, amount)
+        TriggerClientEvent('inventory:client:ItemBox', src, RSGCore.Shared.Items[item], "remove", amount)
+        
+        -- Add Money
+        local total = math.floor(amount * price)
+        Player.Functions.AddMoney('cash', total)
+        
+        -- Notify
+        TriggerClientEvent('ox_lib:notify', src, { 
+            title = 'Moonshiner', 
+            description = 'Sold '..amount..'x '..RSGCore.Shared.Items[item].label..' for $'..total, 
+            type = 'success' 
+        })
+    else
+        TriggerClientEvent('ox_lib:notify', src, { title = 'Moonshiner', description = 'Transaction failed. items missing.', type = 'error' })
+    end
+end)
+
 -- Usable Items
 RSGCore.Functions.CreateUseableItem(Config.brewProp, function(source, item)
     print('rsg-moonshiner: Server - Used item', Config.brewProp)
@@ -428,11 +535,10 @@ RegisterNetEvent('rsg-moonshiner:server:alertPolice', function(coords)
     for i = 1, #players do
         local player = RSGCore.Functions.GetPlayer(players[i])
         if player then
-            local job = player.PlayerData.job.name
-            if job == 'police' or job == 'sheriff' or job == 'marshal' then
-                TriggerClientEvent('rsg-moonshiner:client:policeAlert', players[i], coords)
-                TriggerClientEvent('ox_lib:notify', players[i], { title = 'Dispatch', description = 'Illegal moonshine activity reported!', type = 'error', duration = 5000 })
-            end
+            -- Alert everyone
+            TriggerClientEvent('rsg-moonshiner:client:policeAlert', players[i], coords)
+            -- Optional: Notify everyone via text as well, or just keep the blip
+            -- TriggerClientEvent('ox_lib:notify', players[i], { title = 'Dispatch', description = 'Illegal moonshine activity reported!', type = 'error', duration = 5000 })
         end
     end
 end)

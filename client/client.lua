@@ -11,6 +11,118 @@ local placedStill = false
 local placedBarrel = false
 local inplacing = false
 
+-- Track active smoke effects for stills (key = entity handle, value = true/false)
+local activeSmoke = {}
+
+
+-- NUI State
+activeMenuOptions = {} -- Global
+local activeProgressPromise = nil
+
+-- Helper to submit NUI
+function ShowCustomMenu(title, options)
+    activeMenuOptions = options
+    local optionsForNui = {}
+    for i, opt in ipairs(options) do
+        table.insert(optionsForNui, {
+            title = opt.title or opt.header,
+            description = opt.description or opt.txt,
+        })
+    end
+    
+    SetNuiFocus(true, true)
+    SendNUIMessage({
+        action = "openMenu",
+        title = title,
+        options = optionsForNui
+    })
+end
+
+function CloseCustomMenu()
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = "closeMenu" })
+end
+
+-- NUI Callbacks
+RegisterNUICallback('selectOption', function(data, cb)
+    -- We can keep focus if we want nested menus, but for now close it
+    -- Existing logic triggers events which might open other things
+    -- But usually we select one thing.
+    
+    local index = data.index
+    -- Execute the onSelect function we stored
+    if activeMenuOptions[index] and activeMenuOptions[index].onSelect then
+        -- Close menu first usually?
+        -- The existing menu logic closes the menu context when an item is selected usually.
+        SetNuiFocus(false, false)
+        SendNUIMessage({ action = "closeMenu" })
+        activeMenuOptions[index].onSelect()
+    end
+    cb('ok')
+end)
+
+RegisterNUICallback('closeMenu', function(data, cb)
+    SetNuiFocus(false, false)
+    -- Unlock prop if user closes menu without selecting action
+    if currentPropCoords then
+        UnlockCurrentProp()
+    end
+    cb('ok')
+end)
+
+
+RegisterNUICallback('progressComplete', function(data, cb)
+    if activeProgressPromise then
+        activeProgressPromise:resolve(true)
+        activeProgressPromise = nil
+    end
+    cb('ok')
+end)
+
+-- Custom Progress Bar
+function CustomProgressBar(data)
+    local playerPed = PlayerPedId()
+    
+    -- Send NUI
+    SendNUIMessage({
+        action = "startProgress",
+        label = data.label,
+        duration = data.duration
+    })
+    
+    -- Animation
+    if data.anim then
+        lib.requestAnimDict(data.anim.dict)
+        TaskPlayAnim(playerPed, data.anim.dict, data.anim.clip, 8.0, -8.0, data.duration, data.anim.flag or 1, 0, false, false, false)
+    end
+    
+    -- Disable Controls
+    local isProgressing = true
+    if data.disable then
+        CreateThread(function()
+            while isProgressing do
+                if data.disable.move then DisableControlAction(0, 0x8FD015D8, true) DisableControlAction(0, 0xD27782E3, true) end
+                if data.disable.car then DisableControlAction(0, 0x4CC0E2FE, true) end
+                if data.disable.combat then DisableControlAction(0, 0xC1989F95, true) end -- Attack
+                Wait(0)
+            end
+        end)
+    end
+    
+    activeProgressPromise = promise.new()
+    local result = Citizen.Await(activeProgressPromise)
+    isProgressing = false
+    
+    -- Cleanup Animation
+    if data.anim then
+        ClearPedTasks(playerPed)
+    end
+    
+    SendNUIMessage({ action = "stopProgress" })
+    
+    return result
+end
+
 -- Notification helper function
 local function Notify(message, type)
     lib.notify({
@@ -60,6 +172,50 @@ local function round(num, idp)
     return math.floor(num * mult + 0.5) / mult
 end
 
+-- Prop locking state
+local currentPropCoords = nil
+local propInUseResult = nil
+local waitingForPropCheck = false
+
+-- Listen for prop in use result from server
+RegisterNetEvent('rsg-moonshiner:client:propInUseResult', function(inUse, byPlayer)
+    propInUseResult = {inUse = inUse, byPlayer = byPlayer}
+    waitingForPropCheck = false
+end)
+
+-- Check if prop is available (async)
+local function CheckPropAvailable(x, y, z)
+    propInUseResult = nil
+    waitingForPropCheck = true
+    TriggerServerEvent('rsg-moonshiner:server:checkPropInUse', x, y, z)
+    
+    local timeout = 0
+    while waitingForPropCheck and timeout < 2000 do
+        Wait(10)
+        timeout = timeout + 10
+    end
+    
+    if propInUseResult and propInUseResult.inUse then
+        Notify('This equipment is currently being used by another player!', 'error')
+        return false
+    end
+    return true
+end
+
+-- Lock prop when starting to use it
+local function LockCurrentProp(x, y, z)
+    currentPropCoords = {x = x, y = y, z = z}
+    TriggerServerEvent('rsg-moonshiner:server:lockProp', x, y, z)
+end
+
+-- Unlock prop when done
+local function UnlockCurrentProp()
+    if currentPropCoords then
+        TriggerServerEvent('rsg-moonshiner:server:unlockProp', currentPropCoords.x, currentPropCoords.y, currentPropCoords.z)
+        currentPropCoords = nil
+    end
+end
+
 -- Update Props from Server
 CreateThread(function()
     while true do
@@ -67,6 +223,7 @@ CreateThread(function()
         TriggerServerEvent("rsg-moonshiner:server:updateProps")
     end
 end)
+
 
 -- Open Still Menu
 function OpenStillMenu()
@@ -91,23 +248,17 @@ function OpenStillMenu()
         })
     end
     
-    -- Add remove still option
+    -- Add destroy still option
     table.insert(stillMenu, {
-        title = "Remove Still",
-        description = "Pick up the still",
-        icon = 'hand-holding',
+        title = "Destroy Still",
+        description = "Destroy the still completely (10s Fuse!)",
+        icon = 'bomb',
         onSelect = function()
-            TriggerEvent('rsg-moonshiner:client:removeStill')
+            TriggerEvent('rsg-moonshiner:client:destroyStill')
         end
     })
     
-    lib.registerContext({
-        id = 'still_menu',
-        title = 'Moonshine Still',
-        options = stillMenu
-    })
-    
-    lib.showContext('still_menu')
+    ShowCustomMenu("Moonshine Still", stillMenu)
 end
 
 -- Open Barrel Menu
@@ -141,13 +292,18 @@ function OpenBarrelMenu()
         end
     })
     
-    lib.registerContext({
-        id = 'barrel_menu',
-        title = 'Mash Barrel',
-        options = barrelMenu
-    })
-    
-    lib.showContext('barrel_menu')
+    ShowCustomMenu("Mash Barrel", barrelMenu)
+end
+
+-- Check if player is in a restricted zone (city)
+local function IsInRestrictedZone(coords)
+    for _, zone in pairs(Config.RestrictedZones) do
+        local distance = #(coords - zone.coords)
+        if distance <= zone.radius then
+            return true, zone.name
+        end
+    end
+    return false, nil
 end
 
 -- Place Prop
@@ -155,14 +311,26 @@ RegisterNetEvent('rsg-moonshiner:client:placeProp', function(propName)
     print('rsg-moonshiner: placeProp called with', propName)
     local playerPed = PlayerPedId()
     local coords = GetEntityCoords(playerPed)
+    
+    -- Check if player is in a restricted zone
+    local isRestricted, zoneName = IsInRestrictedZone(coords)
+    if isRestricted then
+        Notify('You cannot set up moonshine operations in ' .. zoneName .. '! Find a secluded location outside of town.', 'error')
+        TriggerServerEvent('rsg-moonshiner:server:givePropBack', propName)
+        return
+    end
+    
     local heading = GetEntityHeading(playerPed)
     local object = GetHashKey(propName)
 
+
     print('rsg-moonshiner: Requesting model', propName, object)
+    
+    -- Force stream the model
     if not HasModelLoaded(object) then
         RequestModel(object)
         local timeout = 0
-        while not HasModelLoaded(object) and timeout < 5000 do
+        while not HasModelLoaded(object) and timeout < 10000 do
             Wait(10)
             timeout = timeout + 10
         end
@@ -175,22 +343,44 @@ RegisterNetEvent('rsg-moonshiner:client:placeProp', function(propName)
     
     print('rsg-moonshiner: Model loaded, creating object')
     inplacing = true
-    local tempObj = CreateObject(object, coords.x, coords.y, coords.z, false, false, false)
+    
+    -- Create the preview object (networked = false, scriptHostObj = true)
+    local forward = GetEntityForwardVector(playerPed)
+    local spawnCoords = vector3(coords.x + forward.x * 2.0, coords.y + forward.y * 2.0, coords.z)
+    
+    local tempObj = CreateObject(object, spawnCoords.x, spawnCoords.y, spawnCoords.z, false, true, false)
+    
+    if not DoesEntityExist(tempObj) then
+        print('rsg-moonshiner: Failed to create object')
+        Notify('Failed to create preview object', 'error')
+        inplacing = false
+        return
+    end
+    
     print('rsg-moonshiner: Object created', tempObj)
+    
+    -- Make the object visible and semi-transparent
+    SetEntityVisible(tempObj, true)
+    SetEntityAlpha(tempObj, 200, false)
     SetEntityHeading(tempObj, heading)
-    SetEntityAlpha(tempObj, 150, false)
+    PlaceObjectOnGroundProperly(tempObj)
+    SetEntityCollision(tempObj, false, false)
+    FreezeEntityPosition(tempObj, true)
     
     local placing = true
     while placing do
-        Wait(5)
+        Wait(0)
         local newCoords = GetEntityCoords(playerPed)
         local newHeading = GetEntityHeading(playerPed)
-        local forward = GetEntityForwardVector(playerPed)
-        local objCoords = vector3(newCoords.x + forward.x * 2.0, newCoords.y + forward.y * 2.0, newCoords.z)
+        local fwd = GetEntityForwardVector(playerPed)
+        local objCoords = vector3(newCoords.x + fwd.x * 2.0, newCoords.y + fwd.y * 2.0, newCoords.z)
         
+        -- Update position
+        FreezeEntityPosition(tempObj, false)
         SetEntityCoords(tempObj, objCoords.x, objCoords.y, objCoords.z, false, false, false, false)
         SetEntityHeading(tempObj, newHeading)
         PlaceObjectOnGroundProperly(tempObj)
+        FreezeEntityPosition(tempObj, true)
         
         -- Draw styled help text
         DrawPlacementHelp(objCoords.x, objCoords.y, objCoords.z + 1.5)
@@ -199,7 +389,7 @@ RegisterNetEvent('rsg-moonshiner:client:placeProp', function(propName)
             local finalCoords = GetEntityCoords(tempObj)
             DeleteObject(tempObj)
             
-            if lib.progressBar({
+            if CustomProgressBar({
                 duration = 8000,
                 label = 'Setting up ' .. (propName == Config.brewProp and 'moonshine still' or 'mash barrel') .. '...',
                 useWhileDead = false,
@@ -217,6 +407,11 @@ RegisterNetEvent('rsg-moonshiner:client:placeProp', function(propName)
             }) then
                 TriggerServerEvent('rsg-moonshiner:server:placeProp', propName, finalCoords.x, finalCoords.y, finalCoords.z)
                 Notify('You set up the ' .. (propName == Config.brewProp and 'moonshine still' or 'mash barrel'), 'success')
+                
+                -- Trigger Global Alert on Still Placement
+                if propName == Config.brewProp then
+                    TriggerServerEvent('rsg-moonshiner:server:alertPolice', finalCoords)
+                end
             end
             
             placing = false
@@ -230,7 +425,11 @@ RegisterNetEvent('rsg-moonshiner:client:placeProp', function(propName)
             inplacing = false
         end
     end
+    
+    -- Cleanup model
+    SetModelAsNoLongerNeeded(object)
 end)
+
 
 -- Remove Still
 RegisterNetEvent('rsg-moonshiner:client:removeStill', function()
@@ -244,12 +443,56 @@ RegisterNetEvent('rsg-moonshiner:client:removeBarrel', function()
     TriggerServerEvent('rsg-moonshiner:server:getCoordsId', coords.x, coords.y, coords.z)
 end)
 
+-- Destroy Still Request
+RegisterNetEvent('rsg-moonshiner:client:destroyStill', function()
+    local coords = GetEntityCoords(PlayerPedId())
+    TriggerServerEvent('rsg-moonshiner:server:getCoordsIdForDestroy', coords.x, coords.y, coords.z)
+end)
+
+-- Check Destroy Distance
+RegisterNetEvent('rsg-moonshiner:client:checkDestroyDist', function(x, y, z, id, object, propX, propY, propZ)
+    local coords = GetEntityCoords(PlayerPedId())
+    local dist = #(coords - vector3(propX, propY, propZ))
+    
+    if dist <= 2.0 then
+        TriggerEvent('rsg-moonshiner:client:startDestroySequence', id, object, propX, propY, propZ)
+    end
+end)
+
+-- Start Destroy Sequence
+RegisterNetEvent('rsg-moonshiner:client:startDestroySequence', function(id, object, x, y, z)
+    Notify("RUN! 10 SECONDS UNTIL EXPLOSION!", "error")
+    
+    -- Visual Pulse Effect?
+    AnimpostfxPlay("CamPushInJust")
+    
+    local countdown = 10
+    while countdown > 0 do
+        Notify(countdown .. "...", "error")
+        Wait(1000)
+        countdown = countdown - 1
+    end
+    
+    AnimpostfxStop("CamPushInJust")
+    
+    -- Explosion (Type 22 = Dynamite)
+    AddExplosion(x, y, z, 22, 5.0, true, false, 1.0)
+    
+    local prop = GetClosestObjectOfType(x, y, z, 2.0, GetHashKey(object), false, false, false)
+    if DoesEntityExist(prop) then
+        DeleteObject(prop)
+    end
+    
+    TriggerServerEvent('rsg-moonshiner:server:executeDestroy', id)
+    Notify("Still destroyed!", "success")
+end)
+
 -- Delete Prop
 RegisterNetEvent('rsg-moonshiner:client:deleteProp', function(id, object, xpos, ypos, zpos)
     local playerPed = PlayerPedId()
     local prop = GetClosestObjectOfType(xpos, ypos, zpos, 1.0, GetHashKey(object), false, false, false)
     
-    if lib.progressBar({
+    if CustomProgressBar({
         duration = 5000,
         label = 'Removing...',
         useWhileDead = false,
@@ -281,7 +524,7 @@ RegisterNetEvent('rsg-moonshiner:client:processMash', function(mash, mashData)
     local playerPed = PlayerPedId()
     local mashTime = mashData.mashTime * 60 * 1000
     
-    if lib.progressBar({
+    if CustomProgressBar({
         duration = mashTime,
         label = 'Producing ' .. mashData.label,
         useWhileDead = false,
@@ -300,7 +543,9 @@ RegisterNetEvent('rsg-moonshiner:client:processMash', function(mash, mashData)
     end
     
     isProcessingMash = false
+    UnlockCurrentProp()
 end)
+
 
 -- Start Brewing
 RegisterNetEvent('rsg-moonshiner:client:startBrewing', function(data)
@@ -318,11 +563,111 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
     isBrewing = true
     local brewTime = moonshineData.brewTime * 60 * 1000
     
-    -- Alert Police
-    local coords = GetEntityCoords(PlayerPedId())
+    -- Global Alert
+    local playerPed = PlayerPedId()
+    local coords = GetEntityCoords(playerPed)
     TriggerServerEvent('rsg-moonshiner:server:alertPolice', coords)
     
-    if lib.progressBar({
+    -- Find the nearest still for smoke effect
+    local stillHash = GetHashKey(Config.brewProp)
+    local still = GetClosestObjectOfType(coords.x, coords.y, coords.z, 5.0, stillHash, false, false, false)
+    local smokeHandle = nil
+    
+    -- Mini-game (Skill Check)
+    local success = lib.skillCheck({'easy', 'easy', 'easy'}, {'e'})
+    
+    if not success then
+        isBrewing = false
+        UnlockCurrentProp()
+        Notify('You messed up the brew! Ingredients wasted.', 'error')
+        return
+    end
+
+    -- Smoke effect - persists until still is destroyed
+    local stillEntity = still
+    local stillCoords = GetEntityCoords(still)
+    
+    -- Only start smoke if this still doesn't already have smoke
+    if DoesEntityExist(stillEntity) and not activeSmoke[stillEntity] then
+        activeSmoke[stillEntity] = true
+        
+        CreateThread(function()
+            print("Moonshiner: Loading particle effects for still " .. tostring(stillEntity))
+            
+            -- Load the 'core' particle asset
+            RequestNamedPtfxAsset("core")
+            
+            local timeout = 0
+            while not HasNamedPtfxAssetLoaded("core") and timeout < 3000 do
+                Wait(100)
+                timeout = timeout + 100
+            end
+            
+            if HasNamedPtfxAssetLoaded("core") then
+                print("Moonshiner: Core asset loaded, creating smoke at coords: " .. 
+                    tostring(stillCoords.x) .. ", " .. tostring(stillCoords.y) .. ", " .. tostring(stillCoords.z))
+                
+                -- Use DARK exhaust smoke rotated to go UPWARD
+                -- Combined with chimney smoke for rising effect
+                
+                local smokeHandle1 = 0
+                local smokeHandle2 = 0
+                
+                -- First: Dark black smoke rotated to go UP (pitch -90)
+                UseParticleFxAsset("core")
+                smokeHandle1 = StartParticleFxLoopedAtCoord(
+                    "ent_amb_exhaust_thick",  -- Dark black smoke
+                    stillCoords.x,
+                    stillCoords.y,
+                    stillCoords.z + 1.0,
+                    -90.0, 0.0, 0.0,          -- Rotated to point UP!
+                    25.0,
+                    false, false, false, false
+                )
+                print("Moonshiner: Dark smoke (rotated up) handle: " .. tostring(smokeHandle1))
+                
+                -- Second: Add chimney smoke on top for rising effect
+                UseParticleFxAsset("core")  
+                smokeHandle2 = StartParticleFxLoopedAtCoord(
+                    "ent_amb_smoke_chimney",  -- Rising chimney smoke
+                    stillCoords.x,
+                    stillCoords.y,
+                    stillCoords.z + 3.0,      -- Higher up
+                    0.0, 0.0, 0.0,
+                    40.0,                      -- Large scale
+                    false, false, false, false
+                )
+                print("Moonshiner: Chimney smoke handle: " .. tostring(smokeHandle2))
+                
+                -- Keep thread alive while still exists
+                while activeSmoke[stillEntity] and DoesEntityExist(stillEntity) do
+                    Wait(1000)
+                end
+                
+                -- Stop particles when still is destroyed
+                if smokeHandle1 and smokeHandle1 > 0 then
+                    StopParticleFxLooped(smokeHandle1, false)
+                end
+                if smokeHandle2 and smokeHandle2 > 0 then
+                    StopParticleFxLooped(smokeHandle2, false)
+                end
+
+                
+                print("Moonshiner: Smoke stopped - still no longer exists")
+                activeSmoke[stillEntity] = nil
+            else
+                print("Moonshiner: Could not load particle asset")
+                activeSmoke[stillEntity] = nil
+            end
+
+
+
+        end)
+    end
+
+
+
+    if CustomProgressBar({
         duration = brewTime,
         label = 'Brewing ' .. moonshineData.label,
         useWhileDead = false,
@@ -340,12 +685,20 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
     }) then
         print("Moonshiner Client: Brewing complete, giving moonshine")
         isBrewing = false
+        smokeActive = false -- Stop smoke thread
         TriggerServerEvent('rsg-moonshiner:server:giveMoonshine', moonshine, moonshineData)
     else
         isBrewing = false
+        smokeActive = false -- Stop smoke thread
         Notify('Brewing cancelled!', 'error')
     end
+    
+    print("Moonshiner: Brewing ended, smoke should stop")
+    
+    UnlockCurrentProp()
 end)
+
+
 
 -- Replace Props (sync with other players)
 RegisterNetEvent('rsg-moonshiner:client:replaceProps', function(object, x1, y1, z1, actif)
@@ -356,11 +709,19 @@ RegisterNetEvent('rsg-moonshiner:client:replaceProps', function(object, x1, y1, 
     local distance = #(vector3(x1, y1, z1) - entityCoords)
     
     if distance <= radius then
-        if not DoesObjectOfTypeExistAtCoords(x1, y1, z1, 1.0, GetHashKey(object), false) then
-            if actif == 1 then
+        if actif == 0 then
+            -- Delete if inactive
+            if DoesEntityExist(prop) then
                 DeleteObject(prop)
+            end
+        elseif actif == 1 then
+            -- Create if active and missing
+            if not DoesObjectOfTypeExistAtCoords(x1, y1, z1, 1.0, GetHashKey(object), false) then
+                if DoesEntityExist(prop) then DeleteObject(prop) end -- Cleanup existing just in case
+                
                 local tempObj = CreateObject(GetHashKey(object), x1, y1, z1, false, false, false)
                 PlaceObjectOnGroundProperly(tempObj)
+                FreezeEntityPosition(tempObj, true) -- Ensure it stays put
                 
                 -- Add ox_target to the prop
                 if object == Config.brewProp then
@@ -371,7 +732,11 @@ RegisterNetEvent('rsg-moonshiner:client:replaceProps', function(object, x1, y1, 
                             icon = 'fa-solid fa-flask',
                             distance = 2.5,
                             onSelect = function()
-                                OpenStillMenu()
+                                local propCoords = GetEntityCoords(tempObj)
+                                if CheckPropAvailable(propCoords.x, propCoords.y, propCoords.z) then
+                                    LockCurrentProp(propCoords.x, propCoords.y, propCoords.z)
+                                    OpenStillMenu()
+                                end
                             end
                         }
                     })
@@ -383,10 +748,15 @@ RegisterNetEvent('rsg-moonshiner:client:replaceProps', function(object, x1, y1, 
                             icon = 'fa-solid fa-barrel-oil',
                             distance = 2.5,
                             onSelect = function()
-                                OpenBarrelMenu()
+                                local propCoords = GetEntityCoords(tempObj)
+                                if CheckPropAvailable(propCoords.x, propCoords.y, propCoords.z) then
+                                    LockCurrentProp(propCoords.x, propCoords.y, propCoords.z)
+                                    OpenBarrelMenu()
+                                end
                             end
                         }
                     })
+
                 end
             end
         end
@@ -525,21 +895,25 @@ end)
 
 -- Police Alert Blip
 RegisterNetEvent('rsg-moonshiner:client:policeAlert', function(coords)
-    local blip = Citizen.InvokeNative(0x45f13b7e0a15c880, -1282792512, coords.x, coords.y, coords.z, 50.0) -- BLIP_STYLE_AREA
-    SetBlipSprite(blip, -1282792512) -- BLIP_STYLE_AREA
-    SetBlipAlpha(blip, 150)
-    SetBlipScale(blip, 1.0)
+    -- Use standard RedM blip creation
+    local blip = N_0x554d9d53f696d002(1664425300, coords.x, coords.y, coords.z)
     
-    -- Red color for illegal activity
-    -- Citizen.InvokeNative(0x662D364AB216DE2R, blip, 0x95933492) -- BLIP_MODIFIER_MP_COLOR_32 (Red) -- FIXED: Invalid hex 'R'
-    
-    -- Add text to blip
-    local blipName = CreateVarString(10, 'LITERAL_STRING', "Illegal Moonshine Activity")
-    SetBlipName(blip, blipName)
-    
-    -- Remove blip after 2 minutes
-    CreateThread(function()
-        Wait(120000) -- 2 minutes
-        RemoveBlip(blip)
-    end)
+    if blip and blip ~= 0 then
+        SetBlipSprite(blip, joaat('blip_ambient_drunk'), true)
+        SetBlipScale(blip, 0.8)
+        
+        local blipName = CreateVarString(10, 'LITERAL_STRING', "Illegal Moonshine Activity")
+        SetBlipName(blip, blipName)
+        
+        -- Remove blip after 10 minutes
+        CreateThread(function()
+            Wait(600000)
+            if blip and type(blip) == 'number' and DoesBlipExist(blip) then
+                RemoveBlip(blip)
+            end
+        end)
+    else
+        print("rsg-moonshiner: Failed to create police alert blip")
+    end
 end)
+

@@ -163,57 +163,37 @@ end)
 
 -- Shop Menu
 RegisterNetEvent('rsg-moonshiner:client:shopMenu', function()
-    local shopMenu = {
-        {
-            header = "Moonshiner Shop",
-            icon = "fa-solid fa-shop",
-            isMenuHeader = true
-        }
-    }
+    local shopMenu = {}
     
     for _, item in pairs(Config.ShopItems) do
         table.insert(shopMenu, {
-            header = item.name,
-            txt = "Price: $" .. item.price,
+            title = item.name,
+            description = "Price: $" .. item.price,
             icon = "fa-solid fa-dollar-sign",
-            params = {
-                isServer = true,
-                event = "rsg-moonshiner:server:buyItem",
-                args = {
+            onSelect = function()
+                TriggerServerEvent("rsg-moonshiner:server:buyItem", {
                     item = item.name,
                     price = item.price
-                }
-            }
+                })
+            end
         })
     end
     
+    -- Close Option (Optional, or handled by Backspace)
     table.insert(shopMenu, {
-        header = "Close",
+        title = "Close",
         icon = "fa-solid fa-xmark",
-        params = {
-            event = "ox_lib:closeMenu"
-        }
+        onSelect = function()
+            -- Just close
+        end
     })
     
-    exports['ox_lib']:registerContext({
-        id = 'moonshiner_shop',
-        title = 'Moonshiner Shop',
-        options = shopMenu
-    })
-    
-    exports['ox_lib']:showContext('moonshiner_shop')
+    ShowCustomMenu("Moonshiner Shop", shopMenu)
 end)
 
 -- Sell Menu
 RegisterNetEvent('rsg-moonshiner:client:sellMenu', function(playerItems)
-    local sellMenu = {
-        {
-            header = "Sell Products",
-            txt = "Sell your moonshine and mash",
-            icon = "fa-solid fa-hand-holding-usd",
-            isMenuHeader = true
-        }
-    }
+    local sellMenu = {}
     
     local hasItems = false
     
@@ -234,43 +214,33 @@ RegisterNetEvent('rsg-moonshiner:client:sellMenu', function(playerItems)
         if hasItem and itemAmount > 0 then
             hasItems = true
             table.insert(sellMenu, {
-                header = itemName,
-                txt = "Sell for $" .. price .. " each (You have: " .. itemAmount .. ")",
+                title = itemName,
+                description = "Sell for $" .. price .. " each (You have: " .. itemAmount .. ")",
                 icon = "fa-solid fa-whiskey-glass",
-                params = {
-                    isServer = true,
-                    event = "rsg-moonshiner:server:sellItem",
-                    args = {
+                onSelect = function()
+                    TriggerServerEvent("rsg-moonshiner:server:sellItem", {
                         item = itemName,
                         price = price
-                    }
-                }
+                    })
+                end
             })
         end
     end
     
     if not hasItems then
         table.insert(sellMenu, {
-            header = "No Items to Sell",
-            txt = "You don't have any moonshine or mash to sell",
+            title = "No Items to Sell",
+            description = "You don't have any moonshine or mash to sell",
             icon = "fa-solid fa-exclamation-triangle",
-            disabled = true
+            onSelect = function() end
         })
     end
     
     table.insert(sellMenu, {
-        header = "Close",
+        title = "Close",
         icon = "fa-solid fa-xmark",
-        params = {
-            event = "ox_lib:closeMenu"
-        }
+        onSelect = function() end
     })
     
-    exports['ox_lib']:registerContext({
-        id = 'moonshiner_sell',
-        title = 'Sell Products',
-        options = sellMenu
-    })
-    
-    exports['ox_lib']:showContext('moonshiner_sell')
+    ShowCustomMenu("Sell Products", sellMenu)
 end)

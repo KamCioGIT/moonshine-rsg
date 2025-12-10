@@ -3,6 +3,20 @@ Config = {}
 -- General Settings
 Config.Debug = false
 
+-- Restricted Zones (Cities where stills/barrels cannot be placed)
+Config.RestrictedZones = {
+    {name = "Valentine", coords = vector3(-281.0, 793.0, 118.0), radius = 200.0},
+    {name = "Rhodes", coords = vector3(1225.0, -1305.0, 76.0), radius = 180.0},
+    {name = "Saint Denis", coords = vector3(2632.0, -1312.0, 52.0), radius = 350.0},
+    {name = "Blackwater", coords = vector3(-813.0, -1324.0, 43.0), radius = 200.0},
+    {name = "Strawberry", coords = vector3(-1730.0, -385.0, 155.0), radius = 150.0},
+    {name = "Tumbleweed", coords = vector3(-5495.0, -2945.0, 2.0), radius = 150.0},
+    {name = "Armadillo", coords = vector3(-3665.0, -2610.0, -13.0), radius = 150.0},
+    {name = "Van Horn", coords = vector3(2993.0, 565.0, 44.0), radius = 150.0},
+    {name = "Annesburg", coords = vector3(2925.0, 1290.0, 44.0), radius = 180.0},
+}
+
+
 -- NPC Settings
 Config.NPCSettings = {
     enabled = true,

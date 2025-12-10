@@ -115,22 +115,21 @@ RegisterNetEvent('rsg-moonshiner:server:sellToNPC', function(moonshineType, amou
         
         -- Send alert to all law enforcement
         local Players = RSGCore.Functions.GetPlayers()
+        -- Send alert to all players
+        local Players = RSGCore.Functions.GetPlayers()
         for _, playerId in pairs(Players) do
             local TargetPlayer = RSGCore.Functions.GetPlayer(playerId)
             if TargetPlayer then
-                local job = TargetPlayer.PlayerData.job.name
-                -- Alert law enforcement jobs
-                if job == 'police' or job == 'marshal' or job == 'sheriff' or job == 'lawman' then
-                    TriggerClientEvent('ox_lib:notify', playerId, {
-                        title = 'Law Enforcement Alert',
-                        description = string.format('Suspicious activity reported in %s. Possible illegal moonshine sales.', cityName),
-                        type = 'warning',
-                        duration = 10000
-                    })
-                    
-                    -- Send blip to law enforcement
-                    TriggerClientEvent('rsg-moonshiner:client:policeAlert', playerId, coords, cityName)
-                end
+                -- Alert everyone
+                TriggerClientEvent('ox_lib:notify', playerId, {
+                    title = 'Suspicious Activity',
+                    description = string.format('Suspicious activity reported in %s. Possible illegal moonshine sales.', cityName),
+                    type = 'warning',
+                    duration = 10000
+                })
+                
+                -- Send blip to everyone
+                TriggerClientEvent('rsg-moonshiner:client:policeAlert', playerId, coords, cityName)
             end
         end
         

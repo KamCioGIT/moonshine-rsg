@@ -279,7 +279,7 @@ function HandleBuyerInteraction()
             buyerTimedOut = true
             
             -- Hide the menu
-            lib.hideContext()
+            CloseCustomMenu()
             
             Notify('Too slow! The buyer got nervous and left!', 'error')
             
@@ -365,14 +365,7 @@ function HandleBuyerInteraction()
         end
     })
     
-    -- Register and show menu
-    lib.registerContext({
-        id = 'moonshine_buyer',
-        title = 'Interested Buyer',
-        options = options
-    })
-    
-    lib.showContext('moonshine_buyer')
+    ShowCustomMenu("Interested Buyer", options)
 end
 
 function ProcessSale(moonshineType, amount, pricePerBottle)
@@ -382,7 +375,7 @@ function ProcessSale(moonshineType, amount, pricePerBottle)
     lib.requestAnimDict('mech_inventory@drinking@bottle_cylinder_d1-3_h30-5_neck_a13_b2-5')
     
     -- Play bottle handoff animation with progress bar
-    if lib.progressBar({
+    if CustomProgressBar({
         duration = 3000,
         label = 'Making the deal...',
         useWhileDead = false,
@@ -669,18 +662,30 @@ end)
 
 -- Police Alert System
 RegisterNetEvent('rsg-moonshiner:client:policeAlert', function(coords, cityName)
-    -- Create blip for law enforcement
-    local blip = Citizen.InvokeNative(0x554D9D53F696D002, 1664425300, coords.x, coords.y, coords.z) -- BlipAddForCoords
-    SetBlipSprite(blip, -1282792512, true) -- Wanted/Crime blip
-    Citizen.InvokeNative(0x9CB1A1623062F402, blip, string.format("Suspicious Activity - %s", cityName)) -- SetBlipName
+    local name = cityName or "Unknown Location"
     
-    -- Remove blip after 2 minutes
-    SetTimeout(120000, function()
-        RemoveBlip(blip)
-    end)
+    -- Use standard RedM blip creation
+    local blip = N_0x554d9d53f696d002(1664425300, coords.x, coords.y, coords.z)
     
-    print(string.format("Moonshiner: Police alert blip created for %s", cityName))
+    if blip and blip ~= 0 then
+        SetBlipSprite(blip, joaat('blip_ambient_drunk'), true)
+        SetBlipScale(blip, 0.8)
+        
+        local blipName = CreateVarString(10, 'LITERAL_STRING', "Suspicious Activity - " .. name)
+        SetBlipName(blip, blipName)
+        
+        print(string.format("Moonshiner: Police alert blip created for %s", name))
+        
+        SetTimeout(120000, function()
+            if blip and type(blip) == 'number' and DoesBlipExist(blip) then
+                RemoveBlip(blip)
+            end
+        end)
+    else
+        print("Moonshiner: Failed to create police alert blip")
+    end
 end)
+
 
 -- Chat Suggestions
 CreateThread(function()
