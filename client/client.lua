@@ -753,10 +753,12 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
                 print("Moonshiner: Created " .. #smokeHandles .. " smoke layers")
             end
             
+            -- Wait for brewing to finish
             while activeSmoke[stillEntity] and DoesEntityExist(stillEntity) do
                 Wait(1000)
             end
             
+            -- Cleanup Smoke
             for _, handle in ipairs(smokeHandles) do
                 if handle and handle > 0 then
                     StopParticleFxLooped(handle, false)
@@ -785,11 +787,79 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
 
 
 
+
         end)
     end
 
 
 
+    -- START BREWING FX (Fire, Sparks, Sound)
+    -- Coordinate Based (More Reliable for visibility than entity attach for static props)
+    local activeEntity = still
+    local fireCoords = coords
+    local audioEntity = PlayerPedId()
+    
+    if DoesEntityExist(activeEntity) then
+        fireCoords = GetEntityCoords(activeEntity)
+        audioEntity = activeEntity
+    else
+        -- Fallback
+        local pCoords = GetEntityCoords(PlayerPedId())
+        local pFwd = GetEntityForwardVector(PlayerPedId())
+        fireCoords = pCoords + pFwd * 1.2
+    end
+    
+    print("Moonshiner FX: Attempting to start fire at " .. tostring(fireCoords))
+
+    -- 1. Load Assets
+    local dict = "core"
+    local fireName = "ent_amb_fire_bonfire_small" -- Stronger fire
+    local sparkName = "ent_amb_sparks_bonfire" 
+    
+    RequestNamedPtfxAsset(dict)
+    local maxWait = 100
+    while not HasNamedPtfxAssetLoaded(dict) and maxWait > 0 do
+        Wait(10)
+        maxWait = maxWait - 1
+    end
+    -- print("Moonshiner FX: Loaded Dict: " .. dict)
+
+    -- 2. Visuals (Particle)
+    UseParticleFxAsset(dict)
+    local fireFxHandle = StartParticleFxLoopedAtCoord(fireName, fireCoords.x, fireCoords.y, fireCoords.z - 0.95, 0.0, 0.0, 0.0, 1.0, false, false, false, false)
+    
+    UseParticleFxAsset(dict)
+    local sparkFxHandle = StartParticleFxLoopedAtCoord(sparkName, fireCoords.x, fireCoords.y, fireCoords.z - 0.5, 0.0, 0.0, 0.0, 2.0, false, false, false, false)
+    
+    -- print("Moonshiner FX: Fire Handle -> " .. tostring(fireFxHandle) .. " | Spark Handle -> " .. tostring(sparkFxHandle))
+    
+    -- 3. Visuals (Prop Fallback)
+    -- If particle failed (Handle 0) OR purely to ensure visibility, we can spawn a campfire prop
+    local fireProp = nil
+    if not fireFxHandle or fireFxHandle == 0 then
+        -- print("Moonshiner FX: Particles failed. Spawning Fallback Prop.")
+        local model = GetHashKey("p_campfire05x")
+        RequestModel(model)
+        local t = 0
+        while not HasModelLoaded(model) and t < 50 do Wait(10) t=t+1 end
+        
+        if HasModelLoaded(model) then
+            fireProp = CreateObject(model, fireCoords.x, fireCoords.y, fireCoords.z - 0.95, true, true, false)
+            SetEntityCollision(fireProp, false, false)
+            FreezeEntityPosition(fireProp, true)
+            -- print("Moonshiner FX: Fallback Prop Spawned -> " .. tostring(fireProp))
+        end
+    end
+    
+    -- 4. Audio
+    local brewSoundId = GetSoundId()
+    local bubbleSoundId = GetSoundId()
+
+    -- Native: _PLAY_SOUND_FROM_POSITION
+    Citizen.InvokeNative(0x89049DD63C08B5D1, brewSoundId, "Campfire_Idle_Loop", fireCoords.x, fireCoords.y, fireCoords.z, "App_Campfire_Sounds", true, 0, false, 0)
+    Citizen.InvokeNative(0x89049DD63C08B5D1, bubbleSoundId, "Cooking_Pot_Bubble_Loop", fireCoords.x, fireCoords.y, fireCoords.z, "App_Camp_Cooking_Sounds", true, 0, false, 0)
+
+    -- PROGRESS BAR
     if CustomProgressBar({
         duration = brewTime,
         label = 'Brewing ' .. moonshineData.label .. ' (Backspace to Cancel)',
@@ -815,8 +885,20 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
         isBrewing = false
         smokeActive = false 
         Notify('Brewing cancelled!', 'error')
-        -- Optional: Logic to waste ingredients or save them? (Currently saved as not consumed until completion in typical logic, but logic here removes them before start. Server logic removed items already.)
-        -- To be friendly, we can give ingredients back or just count it as spilled.
+    end
+    
+    -- STOP BREWING FX
+    if fireFxHandle and fireFxHandle ~= 0 then StopParticleFxLooped(fireFxHandle, false) end
+    if sparkFxHandle and sparkFxHandle ~= 0 then StopParticleFxLooped(sparkFxHandle, false) end
+    if fireProp and DoesEntityExist(fireProp) then DeleteObject(fireProp) end
+    
+    if brewSoundId then 
+        Citizen.InvokeNative(0xA3B0C41BA5CC032F, brewSoundId) -- StopSound
+        ReleaseSoundId(brewSoundId) 
+    end
+    if bubbleSoundId then 
+        Citizen.InvokeNative(0xA3B0C41BA5CC032F, bubbleSoundId) -- StopSound
+        ReleaseSoundId(bubbleSoundId) 
     end
     
     print("Moonshiner: Brewing ended, smoke should stop")
@@ -1056,36 +1138,7 @@ RegisterNetEvent('rsg-moonshiner:client:policeAlert', function(coords)
     end
 end)
 
--- Debug Command to check valid props
-RegisterCommand('checkprops', function()
-    local propsToCheck = {
-        -- Previous checks
-        "p_bottlemoonshine01x",
-        "s_inv_moonshine01x", 
-        "p_bottleJD01x",
-        
-        -- Jugs / Big Bottles
-        "p_jug01x",
-        "p_jug02x",
-        "p_jug03x",
-        "p_jug04x",
-        "p_moonshinejug01x",
-        "s_inv_jug01x",
-        "w_pi_bottle_moonshine01",
-        "w_pi_bottle_moonshine02",
-        "p_bottle_crate_moonshine", -- Crate
-        "p_keg01x" -- Keg
-    }
-    
-    print("=== Checking Prop Validity ===")
-    for _, modelStr in ipairs(propsToCheck) do
-        local hash = GetHashKey(modelStr)
-        if IsModelInCdimage(hash) then
-            print("VALID: " .. modelStr)
-        else
-            print("INVALID: " .. modelStr)
-        end
-    end
-    print("============================")
-end)
+
+-- Debug Commands Removed
+
 
