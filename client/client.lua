@@ -591,60 +591,107 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
 
     -- Smoke effect - persists until still is destroyed
     local stillEntity = still
-    local stillCoords = GetEntityCoords(still)
+    
+    print("Moonshiner: Still entity: " .. tostring(stillEntity) .. " exists: " .. tostring(DoesEntityExist(stillEntity)))
     
     -- Only start smoke if this still doesn't already have smoke
     if DoesEntityExist(stillEntity) and not activeSmoke[stillEntity] then
         activeSmoke[stillEntity] = true
         
         CreateThread(function()
-            print("Moonshiner: Loading particle effects for still " .. tostring(stillEntity))
+            local stillCoords = GetEntityCoords(stillEntity)
             
-            -- Load the 'core' particle asset
+            -- Load core dictionary
             RequestNamedPtfxAsset("core")
-            
             local timeout = 0
-            while not HasNamedPtfxAssetLoaded("core") and timeout < 3000 do
+            while not HasNamedPtfxAssetLoaded("core") and timeout < 100 do
                 Wait(100)
-                timeout = timeout + 100
+                timeout = timeout + 1
             end
             
+            local smokeHandles = {}
+            local workingEffect = nil
+            
             if HasNamedPtfxAssetLoaded("core") then
-                local smokeHandles = {}
+                -- Find which effect works
+                local effects = {
+                    "ent_amb_smoke_fire_industrial",
+                    "ent_amb_smoke_factory",
+                    "ent_amb_smoke",
+                }
                 
-                for i = 1, 3 do
+                for _, effectName in ipairs(effects) do
                     UseParticleFxAsset("core")
-                    local height = (i - 1) * 15.0
-                    
-                    local handle = StartParticleFxLoopedAtCoord(
-                        "ent_amb_exhaust_thick",
+                    local testHandle = StartParticleFxLoopedAtCoord(
+                        effectName,
                         stillCoords.x,
                         stillCoords.y,
-                        stillCoords.z + height,
-                        -90.0, 0.0, 0.0,
-                        40.0,
+                        stillCoords.z + 1.0,
+                        0.0, 0.0, 0.0,
+                        4.0,
                         false, false, false, false
                     )
                     
-                    if handle and handle > 0 then
-                        table.insert(smokeHandles, handle)
+                    if testHandle and testHandle > 0 then
+                        workingEffect = effectName
+                        table.insert(smokeHandles, testHandle)
+                        print("Moonshiner: Using effect: " .. effectName)
+                        break
                     end
                 end
                 
-                while activeSmoke[stillEntity] and DoesEntityExist(stillEntity) do
-                    Wait(1000)
-                end
-                
-                for _, handle in ipairs(smokeHandles) do
-                    if handle and handle > 0 then
-                        StopParticleFxLooped(handle, false)
+                -- Stack 6 more (total 7: 0, 8, 16, 24, 32, 40, 48)
+                if workingEffect then
+                    local heights = {8.0, 16.0, 24.0, 32.0, 40.0, 48.0}
+                    for _, height in ipairs(heights) do
+                        UseParticleFxAsset("core")
+                        local handle = StartParticleFxLoopedAtCoord(
+                            workingEffect,
+                            stillCoords.x,
+                            stillCoords.y,
+                            stillCoords.z + 1.0 + height,
+                            0.0, 0.0, 0.0,
+                            4.0,
+                            false, false, false, false
+                        )
+                        
+                        if handle and handle > 0 then
+                            table.insert(smokeHandles, handle)
+                        end
                     end
                 end
                 
-                activeSmoke[stillEntity] = nil
-            else
-                activeSmoke[stillEntity] = nil
+                print("Moonshiner: Created " .. #smokeHandles .. " smoke layers")
             end
+            
+            while activeSmoke[stillEntity] and DoesEntityExist(stillEntity) do
+                Wait(1000)
+            end
+            
+            for _, handle in ipairs(smokeHandles) do
+                if handle and handle > 0 then
+                    StopParticleFxLooped(handle, false)
+                end
+            end
+            
+            activeSmoke[stillEntity] = nil
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
