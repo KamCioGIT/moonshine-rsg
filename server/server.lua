@@ -221,6 +221,37 @@ RegisterNetEvent('rsg-moonshiner:server:giveMoonshine', function(moonshine, moon
     -- Player.Functions.AddJobReputation('moonshiner', xp)
 end)
 
+-- Give Moonshine Direct (From Mini-Game Result)
+RegisterNetEvent('rsg-moonshiner:server:giveMoonshineDirect', function(moonshine, amount)
+    local src = source
+    local Player = RSGCore.Functions.GetPlayer(src)
+    if not Player then return end
+    
+    -- Safety check limits
+    if amount > 15 then amount = 15 end 
+    if amount < 1 then amount = 1 end
+    
+    local moonshineData = Config.moonshine[moonshine]
+    if not moonshineData then 
+        print("Error: Invalid moonshine type: " .. tostring(moonshine))
+        return 
+    end
+    
+    Player.Functions.AddItem(moonshineData.output, amount)
+    TriggerClientEvent('inventory:client:ItemBox', src, RSGCore.Shared.Items[moonshineData.output], "add", amount)
+    
+    -- Notify based on amount
+    if amount >= 10 then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'Moonshiner', description = '🍀 Perfect brew! You got ' .. amount .. ' bottles of ' .. moonshineData.label .. '!', type = 'success', duration = 5000 })
+    elseif amount <= 3 then
+        TriggerClientEvent('ox_lib:notify', src, { title = 'Moonshiner', description = '⚠ Brew saved. You got ' .. amount .. ' bottles of ' .. moonshineData.label .. '.', type = 'warning', duration = 5000 })
+    else
+         TriggerClientEvent('ox_lib:notify', src, { title = 'Moonshiner', description = '✓ Brew complete. You got ' .. amount .. ' bottles of ' .. moonshineData.label .. '.', type = 'success', duration = 5000 })
+    end
+    
+    print("✓ Mini-Game Result: Gave " .. amount .. "x " .. moonshineData.label .. " to " .. src)
+end)
+
 -- Give Prop Back
 RegisterNetEvent('rsg-moonshiner:server:givePropBack', function(propName)
     local src = source

@@ -9,6 +9,11 @@ A comprehensive moonshiner script for RedM servers using RSG-Core framework. Cra
 ✅ **Placeable Props** - Place moonshine stills and mash barrels anywhere  
 ✅ **Mash Production** - Create different types of mash from gathered ingredients  
 ✅ **Moonshine Brewing** - Distill mash into premium moonshine  
+✅ **"Fill the Mash" Mini-Game** - Interactive pouring mini-game (Hold Space to fill, hit the target zone!)  
+✅ **Reward Tiers** - Performance-based brewing yields:
+    - **Fail**: 2-3 bottles
+    - **Success**: 4-7 bottles
+    - **Perfect**: 10-12 bottles
 ✅ **Smoke Effects** - Dark smoke column rises from brewing stills (visible from far away)  
 ✅ **Destroy Still** - Blow up your still with a 10-second fuse if you need to destroy evidence  
 ✅ **Multiple Recipes** - Various mash and moonshine recipes (easily expandable)  
@@ -19,6 +24,7 @@ A comprehensive moonshiner script for RedM servers using RSG-Core framework. Cra
 ✅ **Target System** - Interact with NPC using rsg-target  
 ✅ **Database Persistence** - Props are saved and restored  
 ✅ **Fully Configurable** - Easy to customize recipes, prices, and locations  
+✅ **Authentic Props** - Uses verified moonshine jug checks to ensure drinking animations look great
 
 ## Dependencies
 
@@ -77,13 +83,22 @@ A comprehensive moonshiner script for RedM servers using RSG-Core framework. Cra
 4. Select the mash type
 5. Wait for production to complete
 
-**Brewing Moonshine:**
+**Brewing Moonshine (Mini-Game):**
 1. Approach a placed Moonshine Still
 2. Use third-eye (ALT) on the still
 3. Select "Use Moonshine Still"
 4. Select the moonshine type
-5. Watch the dark smoke rise while brewing
-6. Collect your moonshine when done
+5. **Fill the Mash**: Hold **SPACE** to pour mash into the barrel.
+   - **Target**: Release SPACE when the fill level is in the green zone (70-85%).
+   - **Perfect**: Hit the small "Sweet Spot" (76-79%) for massive rewards!
+   - **Fail**: Overfill or underfill and lose potential product.
+6. The still will smoke while brewing.
+7. **Cancel**: Press **BACKSPACE** or **ESC** during the brewing bar to abort the process.
+
+**Drinking Moonshine:**
+- Use the item in your inventory.
+- Character drinks from a large moonshine jug (`p_jug01x`).
+- **Effects**: Screen blur, wobble, passing out, and waking up in random locations (Rhodes) if you drink too much!
 
 **Removing Equipment:**
 1. Use third-eye on the equipment
@@ -100,6 +115,7 @@ A comprehensive moonshiner script for RedM servers using RSG-Core framework. Cra
 **Commands:**
 - `/sellmoonshine` - Start looking for buyers in a city
 - `/stopsellingmoonshine` - Stop the selling session
+- `/checkprops` - (Debug) Check which bottle/jug props are valid on the server
 
 **How it works:**
 1. Go to Valentine, Rhodes, Saint Denis, or Blackwater

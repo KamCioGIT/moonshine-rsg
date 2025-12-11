@@ -215,3 +215,157 @@ body {
     font-weight: bold;
     font-size: 16px;
 }
+
+/* Mini-Game Styles (Rustic/Mash Theme) */
+#minigame-interface {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 450px;
+    height: auto;
+}
+
+.minigame-box {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.wood-frame.rustic {
+    width: 100%;
+    background: #3e2f22;
+    /* Fallback */
+    background-image: url('img/bg.png');
+    /* Assuming reused texture */
+    background-size: cover;
+    padding: 30px;
+    border: 5px solid #2a1d15;
+    border-radius: 8px;
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.9);
+    text-align: center;
+    color: #eecfa1;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+.wood-frame h2 {
+    margin: 0 0 25px 0;
+    font-size: 28px;
+    text-transform: uppercase;
+    border-bottom: 2px dashed #8b6b4e;
+    display: inline-block;
+    padding-bottom: 5px;
+    letter-spacing: 2px;
+}
+
+.barrel-wrapper {
+    position: relative;
+    width: 100%;
+    height: 250px;
+    margin: 10px 0 20px 0;
+    display: flex;
+    justify-content: center;
+}
+
+.barrel-container {
+    width: 140px;
+    height: 100%;
+    background: rgba(101, 67, 33, 0.3);
+    border: 4px solid #5d4037;
+    border-radius: 15px / 30px;
+    /* Elliptical border radius for barrel look */
+    position: relative;
+    overflow: hidden;
+    /* Hide fill outside */
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.6);
+}
+
+/* Barrel Hoops */
+.barrel-container::before,
+.barrel-container::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 8px;
+    background: #3e2723;
+    left: 0;
+    z-index: 5;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.barrel-container::before {
+    top: 20%;
+}
+
+.barrel-container::after {
+    bottom: 20%;
+}
+
+
+.mash-fill {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 0%;
+    background: linear-gradient(to top, #5D4037, #8D6E63, #D7CCC8);
+    /* Mash colors: dark brown to foam */
+    transition: height 0.05s linear;
+    opacity: 0.9;
+}
+
+/* Bubbles/Foam effect on top of fill - simplified via border */
+.mash-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.target-line {
+    position: absolute;
+    width: 100%;
+    height: 2px;
+    background: rgba(255, 215, 0, 0.7);
+    /* Goldish */
+    left: 0;
+    z-index: 10;
+}
+
+.target-line.bottom {
+    bottom: 70%;
+    /* Target zone start */
+    border-bottom: 1px dashed rgba(255, 215, 0, 0.8);
+}
+
+.target-line.top {
+    bottom: 85%;
+    /* Target zone end */
+    border-top: 1px dashed rgba(255, 215, 0, 0.8);
+}
+
+/* Highlight zone between lines */
+.target-line.bottom::before {
+    content: 'PERFECT';
+    position: absolute;
+    top: -20px;
+    /* Just inside */
+    right: 5px;
+    font-size: 10px;
+    color: rgba(255, 215, 0, 0.5);
+}
+
+.game-stats {
+    min-height: 24px;
+    font-weight: bold;
+    font-size: 18px;
+    margin-top: 10px;
+}
+
+.controls-hint {
+    margin-top: 15px;
+    font-size: 12px;
+    opacity: 0.6;
+}

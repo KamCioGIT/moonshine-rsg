@@ -23,6 +23,7 @@ local activeSmoke = {}
 -- NUI State
 activeMenuOptions = {} -- Global
 local activeProgressPromise = nil
+local activeMiniGamePromise = nil
 
 -- Helper to submit NUI
 function ShowCustomMenu(title, options)
@@ -84,6 +85,16 @@ RegisterNUICallback('progressComplete', function(data, cb)
     cb('ok')
 end)
 
+RegisterNUICallback('miniGameResult', function(data, cb)
+    if activeMiniGamePromise then
+        activeMiniGamePromise:resolve(data.success)
+        activeMiniGamePromise = nil
+    end
+    cb('ok')
+end)
+
+
+
 -- Custom Progress Bar
 function CustomProgressBar(data)
     local playerPed = PlayerPedId()
@@ -114,6 +125,23 @@ function CustomProgressBar(data)
         end)
     end
     
+    -- Input Detection (Cancellation)
+    if data.canCancel then
+        CreateThread(function()
+            while isProgressing do
+                -- Backspace (0x156F7119) or ESC (0x3005A324)
+                if IsControlJustPressed(0, 0x156F7119) or IsControlJustPressed(0, 0x3005A324) then
+                     if activeProgressPromise then
+                        activeProgressPromise:resolve(false) -- Resolve false = Cancelled
+                        activeProgressPromise = nil
+                     end
+                     break
+                end
+                Wait(0)
+            end
+        end)
+    end
+    
     activeProgressPromise = promise.new()
     local result = Citizen.Await(activeProgressPromise)
     isProgressing = false
@@ -127,6 +155,49 @@ function CustomProgressBar(data)
     
     return result
 end
+
+-- Custom Mini Game
+function StartMiniGame(difficulty)
+    local playerPed = PlayerPedId()
+    
+    SendNUIMessage({
+        action = "startMiniGame",
+        difficulty = difficulty or 'easy'
+    })
+    
+    activeMiniGamePromise = promise.new()
+    
+    -- Input Handling Thread
+    CreateThread(function()
+        while activeMiniGamePromise do
+            -- Disable movement/actions
+            DisableControlAction(0, 0x8FD015D8, true) -- Move
+            DisableControlAction(0, 0xD27782E3, true) -- Move
+            DisableControlAction(0, 0x4CC0E2FE, true) -- Car
+            
+             -- Detect Space (Fill)
+            if IsControlJustPressed(0, 0xD9D0E1C0) then -- Jump/Space
+                SendNUIMessage({ action = "spaceDown" })
+            end
+            if IsControlJustReleased(0, 0xD9D0E1C0) then
+                SendNUIMessage({ action = "spaceUp" })
+            end
+            
+            -- Detect Cancel (Backspace or ESC)
+            if IsControlJustPressed(0, 0x156F7119) or IsControlJustPressed(0, 0x3005A324) then 
+                SendNUIMessage({ action = "cancelGame" })
+            end
+            
+            Wait(0)
+        end
+    end)
+    
+    local result = Citizen.Await(activeMiniGamePromise)
+    
+    return result
+end
+
+
 
 -- Notification helper function
 local function Notify(message, type)
@@ -415,7 +486,7 @@ RegisterNetEvent('rsg-moonshiner:client:placeProp', function(propName)
                 
                 -- Trigger Global Alert on Still Placement
                 if propName == Config.brewProp then
-                    TriggerServerEvent('rsg-moonshiner:server:alertPolice', finalCoords)
+                    -- TriggerServerEvent('rsg-moonshiner:server:alertPolice', finalCoords)
                 end
             end
             
@@ -546,6 +617,7 @@ RegisterNetEvent('rsg-moonshiner:client:processMash', function(mash, mashData)
         }
     }) then
         TriggerServerEvent('rsg-moonshiner:server:giveMash', mash, mashData)
+        Notify('Mash prepared!', 'success')
     end
     
     isProcessingMash = false
@@ -569,25 +641,42 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
     isBrewing = true
     local brewTime = moonshineData.brewTime * 60 * 1000
     
-    -- Global Alert
+    -- Global Alert removed
     local playerPed = PlayerPedId()
     local coords = GetEntityCoords(playerPed)
-    TriggerServerEvent('rsg-moonshiner:server:alertPolice', coords)
+    -- TriggerServerEvent('rsg-moonshiner:server:alertPolice', coords)
     
     -- Find the nearest still for smoke effect
     local stillHash = GetHashKey(Config.brewProp)
     local still = GetClosestObjectOfType(coords.x, coords.y, coords.z, 5.0, stillHash, false, false, false)
     local smokeHandle = nil
     
-    -- Mini-game (Skill Check)
-    local success = lib.skillCheck({'easy', 'easy', 'easy'}, {'e'})
+    -- Custom Mini-game (Fill the Mash)
+    local result = StartMiniGame('easy')
     
-    if not success then
+    local amountToGive = 0
+    
+    if result == 'cancel' then
         isBrewing = false
         UnlockCurrentProp()
-        Notify('You messed up the brew! Ingredients wasted.', 'error')
+        Notify('Brewing cancelled.', 'error')
         return
+    elseif result == 'fail' then
+        -- Fail Reward: 2-3
+        amountToGive = math.random(2, 3)
+        Notify('You spilt some mash, but salvaged ' .. amountToGive .. ' bottles of moonshine.', 'error')
+    elseif result == 'perfect' then
+        -- Lucky/Perfect Reward: 10-12
+        amountToGive = math.random(10, 12)
+        Notify('Perfect fermentation! Yielded ' .. amountToGive .. ' bottles of moonshine!', 'success')
+    else 
+        -- Success/Pass Reward: 4-7
+        amountToGive = math.random(4, 7)
+        Notify('Good brew. Yielded ' .. amountToGive .. ' bottles of moonshine.', 'success')
     end
+    
+    -- Smoke effect - persists until still is destroyed
+    local stillEntity = still
 
     -- Smoke effect - persists until still is destroyed
     local stillEntity = still
@@ -703,9 +792,9 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
 
     if CustomProgressBar({
         duration = brewTime,
-        label = 'Brewing ' .. moonshineData.label,
+        label = 'Brewing ' .. moonshineData.label .. ' (Backspace to Cancel)',
         useWhileDead = false,
-        canCancel = false,
+        canCancel = true,
         disable = {
             move = true,
             car = true,
@@ -720,11 +809,14 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
         print("Moonshiner Client: Brewing complete, giving moonshine")
         isBrewing = false
         smokeActive = false -- Stop smoke thread
-        TriggerServerEvent('rsg-moonshiner:server:giveMoonshine', moonshine, moonshineData)
+        TriggerServerEvent('rsg-moonshiner:server:giveMoonshineDirect', moonshine, amountToGive)
     else
+        print("Moonshiner Client: Brewing CANCELLED")
         isBrewing = false
-        smokeActive = false -- Stop smoke thread
+        smokeActive = false 
         Notify('Brewing cancelled!', 'error')
+        -- Optional: Logic to waste ingredients or save them? (Currently saved as not consumed until completion in typical logic, but logic here removes them before start. Server logic removed items already.)
+        -- To be friendly, we can give ingredients back or just count it as spilled.
     end
     
     print("Moonshiner: Brewing ended, smoke should stop")
@@ -815,8 +907,19 @@ RegisterNetEvent('rsg-moonshiner:client:drinkMoonshine', function(level)
     local playerPed = PlayerPedId()
     
     -- Drinking animation
-    local prop = CreateObject(`p_bottleJD01x`, GetEntityCoords(playerPed), true, true, false, false, true)
-    AttachEntityToEntity(prop, playerPed, GetEntityBoneIndexByName(playerPed, "PH_R_HAND"), 0.0, 0.0, 0.04, 0.0, 0.0, 0.0, true, true, false, true, 1, true)
+    local propModel = `p_jug01x` -- Verified VALID large jug
+    
+    if not IsModelInCdimage(propModel) then 
+        print("Invalid model") 
+        return 
+    end
+    RequestModel(propModel)
+    while not HasModelLoaded(propModel) do Wait(10) end
+
+    local prop = CreateObject(propModel, GetEntityCoords(playerPed), true, true, false, false, true)
+    -- Fixing floating: Bringing Z down significantly (-0.22). Resetting rotation to default for this check.
+    AttachEntityToEntity(prop, playerPed, GetEntityBoneIndexByName(playerPed, "PH_R_HAND"), 0.0, 0.0, -0.22, 0.0, 0.0, 0.0, true, true, false, true, 1, true)
+    SetModelAsNoLongerNeeded(propModel)
     
     if not IsPedOnMount(playerPed) and not IsPedInAnyVehicle(playerPed) then
         lib.requestAnimDict('mech_inventory@drinking@bottle_cylinder_d1-3_h30-5_neck_a13_b2-5')
@@ -825,7 +928,9 @@ RegisterNetEvent('rsg-moonshiner:client:drinkMoonshine', function(level)
         TaskPlayAnim(playerPed, 'mech_inventory@drinking@bottle_cylinder_d1-3_h30-5_neck_a13_b2-5', 'chug_a', 8.0, -8.0, 5000, 31, 0, true, false, false)
         Wait(5000)
     else
-        TaskItemInteraction_2(playerPed, 1737033966, prop, `p_bottleJD01x_ph_r_hand`, `DRINK_Bottle_Cylinder_d1-55_H18_Neck_A8_B1-8_QUICK_RIGHT_HAND`, true, 0, 0)
+        -- Note: the interaction hash might need to be specific to the prop or generic. 
+        -- Back to right-hand interaction
+        TaskItemInteraction_2(playerPed, 1737033966, prop, `p_jug01x_ph_r_hand`, `DRINK_Bottle_Cylinder_d1-55_H18_Neck_A8_B1-8_QUICK_RIGHT_HAND`, true, 0, 0)
         Wait(4000)
     end
     
@@ -949,5 +1054,38 @@ RegisterNetEvent('rsg-moonshiner:client:policeAlert', function(coords)
     else
         print("rsg-moonshiner: Failed to create police alert blip")
     end
+end)
+
+-- Debug Command to check valid props
+RegisterCommand('checkprops', function()
+    local propsToCheck = {
+        -- Previous checks
+        "p_bottlemoonshine01x",
+        "s_inv_moonshine01x", 
+        "p_bottleJD01x",
+        
+        -- Jugs / Big Bottles
+        "p_jug01x",
+        "p_jug02x",
+        "p_jug03x",
+        "p_jug04x",
+        "p_moonshinejug01x",
+        "s_inv_jug01x",
+        "w_pi_bottle_moonshine01",
+        "w_pi_bottle_moonshine02",
+        "p_bottle_crate_moonshine", -- Crate
+        "p_keg01x" -- Keg
+    }
+    
+    print("=== Checking Prop Validity ===")
+    for _, modelStr in ipairs(propsToCheck) do
+        local hash = GetHashKey(modelStr)
+        if IsModelInCdimage(hash) then
+            print("VALID: " .. modelStr)
+        else
+            print("INVALID: " .. modelStr)
+        end
+    end
+    print("============================")
 end)
 
