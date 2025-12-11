@@ -551,16 +551,114 @@ RegisterNetEvent('rsg-moonshiner:client:startDestroySequence', function(id, obje
     
     AnimpostfxStop("CamPushInJust")
     
+    -- Trigger global explosion and cleanup
+    TriggerServerEvent('rsg-moonshiner:server:syncExplosion', x, y, z, id)
+end)
+
+-- Sync Explosion Event
+RegisterNetEvent('rsg-moonshiner:client:syncExplosion', function(x, y, z)
     AddExplosion(x, y, z, 22, 5.0, true, false, 1.0)
     
-    local prop = GetClosestObjectOfType(x, y, z, 5.0, GetHashKey(object), false, false, false)
+    local prop = GetClosestObjectOfType(x, y, z, 5.0, GetHashKey(Config.brewProp), false, false, false)
     if DoesEntityExist(prop) then
-        activeSmoke[prop] = nil
+        activeSmoke[prop] = nil -- Stop smoke thread
+        SetEntityAsMissionEntity(prop, true, true)
         DeleteObject(prop)
+        SetEntityAsNoLongerNeeded(prop)
     end
+end)
+
+-- Sync Smoke Event
+RegisterNetEvent('rsg-moonshiner:client:syncSmoke', function(coords)
+    local stillHash = GetHashKey(Config.brewProp)
+    local stillEntity = GetClosestObjectOfType(coords.x, coords.y, coords.z, 3.0, stillHash, false, false, false)
+
+    -- If we can't find the entity (maybe not streamed in yet, or too far), we can still play at coords,
+    -- but managing the lifecycle (stopping it when entity dies) is harder.
+    -- Ideally, we attach to the entity found at those coords.
     
-    TriggerServerEvent('rsg-moonshiner:server:executeDestroy', id)
-    Notify("Still destroyed!", "success")
+    if DoesEntityExist(stillEntity) and not activeSmoke[stillEntity] then
+        activeSmoke[stillEntity] = true
+        
+        CreateThread(function()
+            local stillCoords = GetEntityCoords(stillEntity)
+            
+            -- Load core dictionary
+            RequestNamedPtfxAsset("core")
+            local timeout = 0
+            while not HasNamedPtfxAssetLoaded("core") and timeout < 100 do
+                Wait(100)
+                timeout = timeout + 1
+            end
+            
+            local smokeHandles = {}
+            local workingEffect = nil
+            
+            if HasNamedPtfxAssetLoaded("core") then
+                -- Find which effect works
+                local effects = {
+                    "ent_amb_smoke_fire_industrial",
+                    "ent_amb_smoke_factory",
+                    "ent_amb_smoke",
+                }
+                
+                for _, effectName in ipairs(effects) do
+                    UseParticleFxAsset("core")
+                    local testHandle = StartParticleFxLoopedAtCoord(
+                        effectName,
+                        stillCoords.x,
+                        stillCoords.y,
+                        stillCoords.z + 1.0,
+                        0.0, 0.0, 0.0,
+                        4.0,
+                        false, false, false, false
+                    )
+                    
+                    if testHandle and testHandle > 0 then
+                        workingEffect = effectName
+                        table.insert(smokeHandles, testHandle)
+                        break
+                    end
+                end
+                
+                -- Stack 6 more (total 7)
+                if workingEffect then
+                    local heights = {8.0, 16.0, 24.0, 32.0, 40.0, 48.0}
+                    for _, height in ipairs(heights) do
+                        UseParticleFxAsset("core")
+                        local handle = StartParticleFxLoopedAtCoord(
+                            workingEffect,
+                            stillCoords.x,
+                            stillCoords.y,
+                            stillCoords.z + 1.0 + height,
+                            0.0, 0.0, 0.0,
+                            4.0,
+                            false, false, false, false
+                        )
+                        
+                        if handle and handle > 0 then
+                            table.insert(smokeHandles, handle)
+                        end
+                    end
+                end
+            end
+            
+            -- Wait for brewing to finish or entity to be destroyed
+            while activeSmoke[stillEntity] and DoesEntityExist(stillEntity) do
+                Wait(1000)
+            end
+            
+            -- Cleanup Smoke
+            for _, handle in ipairs(smokeHandles) do
+                if handle and handle > 0 then
+                    StopParticleFxLooped(handle, false)
+                    RemoveParticleFx(handle, false)
+                end
+            end
+            
+            activeSmoke[stillEntity] = nil
+        end)
+    end
 end)
 
 
@@ -681,115 +779,13 @@ RegisterNetEvent('rsg-moonshiner:client:processBrewing', function(moonshine, moo
     -- Smoke effect - persists until still is destroyed
     local stillEntity = still
     
-    print("Moonshiner: Still entity: " .. tostring(stillEntity) .. " exists: " .. tostring(DoesEntityExist(stillEntity)))
-    
-    -- Only start smoke if this still doesn't already have smoke
-    if DoesEntityExist(stillEntity) and not activeSmoke[stillEntity] then
-        activeSmoke[stillEntity] = true
-        
-        CreateThread(function()
-            local stillCoords = GetEntityCoords(stillEntity)
-            
-            -- Load core dictionary
-            RequestNamedPtfxAsset("core")
-            local timeout = 0
-            while not HasNamedPtfxAssetLoaded("core") and timeout < 100 do
-                Wait(100)
-                timeout = timeout + 1
-            end
-            
-            local smokeHandles = {}
-            local workingEffect = nil
-            
-            if HasNamedPtfxAssetLoaded("core") then
-                -- Find which effect works
-                local effects = {
-                    "ent_amb_smoke_fire_industrial",
-                    "ent_amb_smoke_factory",
-                    "ent_amb_smoke",
-                }
-                
-                for _, effectName in ipairs(effects) do
-                    UseParticleFxAsset("core")
-                    local testHandle = StartParticleFxLoopedAtCoord(
-                        effectName,
-                        stillCoords.x,
-                        stillCoords.y,
-                        stillCoords.z + 1.0,
-                        0.0, 0.0, 0.0,
-                        4.0,
-                        false, false, false, false
-                    )
-                    
-                    if testHandle and testHandle > 0 then
-                        workingEffect = effectName
-                        table.insert(smokeHandles, testHandle)
-                        print("Moonshiner: Using effect: " .. effectName)
-                        break
-                    end
-                end
-                
-                -- Stack 6 more (total 7: 0, 8, 16, 24, 32, 40, 48)
-                if workingEffect then
-                    local heights = {8.0, 16.0, 24.0, 32.0, 40.0, 48.0}
-                    for _, height in ipairs(heights) do
-                        UseParticleFxAsset("core")
-                        local handle = StartParticleFxLoopedAtCoord(
-                            workingEffect,
-                            stillCoords.x,
-                            stillCoords.y,
-                            stillCoords.z + 1.0 + height,
-                            0.0, 0.0, 0.0,
-                            4.0,
-                            false, false, false, false
-                        )
-                        
-                        if handle and handle > 0 then
-                            table.insert(smokeHandles, handle)
-                        end
-                    end
-                end
-                
-                print("Moonshiner: Created " .. #smokeHandles .. " smoke layers")
-            end
-            
-            -- Wait for brewing to finish
-            while activeSmoke[stillEntity] and DoesEntityExist(stillEntity) do
-                Wait(1000)
-            end
-            
-            -- Cleanup Smoke
-            for _, handle in ipairs(smokeHandles) do
-                if handle and handle > 0 then
-                    StopParticleFxLooped(handle, false)
-                end
-            end
-            
-            activeSmoke[stillEntity] = nil
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-        end)
+    -- Request global smoke sync
+    if DoesEntityExist(stillEntity) then
+        local stCoords = GetEntityCoords(stillEntity)
+        TriggerServerEvent('rsg-moonshiner:server:syncSmoke', stCoords)
     end
+    
+
 
 
 

@@ -337,6 +337,21 @@ RegisterNetEvent('rsg-moonshiner:server:executeDestroy', function(id)
     print('[Moonshiner] Still destroyed and removed from database - ID: ' .. id)
 end)
 
+-- Sync Smoke
+RegisterNetEvent('rsg-moonshiner:server:syncSmoke', function(coords)
+    TriggerClientEvent('rsg-moonshiner:client:syncSmoke', -1, coords)
+end)
+
+-- Sync Explosion
+RegisterNetEvent('rsg-moonshiner:server:syncExplosion', function(x, y, z, id)
+    local src = source
+    if id then
+        MySQL.query('DELETE FROM moonshiner WHERE id = ?', {id})
+        print('[Moonshiner] Still destroyed via syncExplosion - ID: ' .. id)
+    end
+    TriggerClientEvent('rsg-moonshiner:client:syncExplosion', -1, x, y, z)
+end)
+
 
 -- Get Object ID
 RegisterNetEvent('rsg-moonshiner:server:getObjectId', function(object, x, y, z)
