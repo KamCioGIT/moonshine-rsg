@@ -559,12 +559,32 @@ end)
 RegisterNetEvent('rsg-moonshiner:client:syncExplosion', function(x, y, z)
     AddExplosion(x, y, z, 22, 5.0, true, false, 1.0)
     
-    local prop = GetClosestObjectOfType(x, y, z, 5.0, GetHashKey(Config.brewProp), false, false, false)
-    if DoesEntityExist(prop) then
-        activeSmoke[prop] = nil -- Stop smoke thread
-        SetEntityAsMissionEntity(prop, true, true)
-        DeleteObject(prop)
-        SetEntityAsNoLongerNeeded(prop)
+    -- Try to find and delete the prop multiple times to ensure it's gone
+    local attempts = 0
+    while attempts < 5 do
+        local prop = GetClosestObjectOfType(x, y, z, 5.0, GetHashKey(Config.brewProp), false, false, false)
+        if DoesEntityExist(prop) then
+            print("Moonshiner: Deleting still prop at", x, y, z)
+            
+            -- Stop smoke
+            activeSmoke[prop] = nil 
+            
+            -- Remove target options if using ox_target (though local entity deletion should handle it)
+            if exports.ox_target then
+                exports.ox_target:removeLocalEntity(prop, 'moonshine_still')
+            end
+
+            -- Delete Logic
+            FreezeEntityPosition(prop, false)
+            SetEntityAsMissionEntity(prop, true, true)
+            DeleteObject(prop)
+            DeleteEntity(prop) -- Redundant but safe
+            SetEntityAsNoLongerNeeded(prop)
+        else
+            break -- Prop gone
+        end
+        Wait(100)
+        attempts = attempts + 1
     end
 end)
 
