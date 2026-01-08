@@ -515,8 +515,14 @@ end)
 
 -- Remove Barrel
 RegisterNetEvent('rsg-moonshiner:client:removeBarrel', function()
-    local coords = GetEntityCoords(PlayerPedId())
-    TriggerServerEvent('rsg-moonshiner:server:getCoordsId', coords.x, coords.y, coords.z)
+    local x, y, z
+    if currentPropCoords then
+        x, y, z = currentPropCoords.x, currentPropCoords.y, currentPropCoords.z
+    else
+        local coords = GetEntityCoords(PlayerPedId())
+        x, y, z = coords.x, coords.y, coords.z
+    end
+    TriggerServerEvent('rsg-moonshiner:server:getCoordsId', x, y, z)
 end)
 
 -- Destroy Still Request
@@ -685,7 +691,9 @@ end)
 -- Delete Prop
 RegisterNetEvent('rsg-moonshiner:client:deleteProp', function(id, object, xpos, ypos, zpos)
     local playerPed = PlayerPedId()
-    local prop = GetClosestObjectOfType(xpos, ypos, zpos, 1.0, GetHashKey(object), false, false, false)
+    
+    -- Visual check before animation
+    local propModel = GetHashKey(object)
     
     if CustomProgressBar({
         duration = 5000,
@@ -702,10 +710,47 @@ RegisterNetEvent('rsg-moonshiner:client:deleteProp', function(id, object, xpos, 
             clip = 'exit_front'
         }
     }) then
-        DeleteObject(prop)
-        TriggerServerEvent('rsg-moonshiner:server:removeProp', id)
+        -- Aggressive Deletion Logic to clean up stacks
+        local pool = GetGamePool('CObject')
+        local count = 0
+        for _, p in ipairs(pool) do
+            if GetEntityModel(p) == propModel then
+                local pCoords = GetEntityCoords(p)
+                if #(pCoords - vector3(xpos, ypos, zpos)) < 3.0 then
+                    -- Delete it
+                    if exports.ox_target then exports.ox_target:removeLocalEntity(p) end
+                    SetEntityAsMissionEntity(p, true, true)
+                    DeleteObject(p)
+                    DeleteEntity(p)
+                    SetEntityAsNoLongerNeeded(p)
+                    count = count + 1
+                end
+            end
+        end
+        
+        print("Moonshiner: Cleaned up " .. count .. " props.")
+
+        -- Server Cleanup
+        TriggerServerEvent('rsg-moonshiner:server:removeProp', id, object, xpos, ypos, zpos) -- Pass extra args for sync
         TriggerServerEvent('rsg-moonshiner:server:givePropBack', object)
         Notify('You picked up the ' .. (object == Config.brewProp and 'still' or 'barrel'), 'success')
+    end
+end)
+
+-- Global Cleanup Event (to be triggered by server)
+RegisterNetEvent('rsg-moonshiner:client:cleanupProp', function(object, x, y, z)
+    local propModel = GetHashKey(object)
+    local pool = GetGamePool('CObject')
+    for _, p in ipairs(pool) do
+        if GetEntityModel(p) == propModel then
+            local pCoords = GetEntityCoords(p)
+            if #(pCoords - vector3(x, y, z)) < 3.0 then
+                if exports.ox_target then exports.ox_target:removeLocalEntity(p) end
+                SetEntityAsMissionEntity(p, true, true)
+                DeleteObject(p)
+                DeleteEntity(p)
+            end
+        end
     end
 end)
 
@@ -987,12 +1032,18 @@ RegisterNetEvent('rsg-moonshiner:client:replaceProps', function(object, x1, y1, 
     end
 end)
 
-RegisterNetEvent('rsg-moonshiner:client:getId', function(x1, y1, z1, object, x2, y2, z2)
+RegisterNetEvent('rsg-moonshiner:client:getId', function(x1, y1, z1, object, x2, y2, z2, id)
     local coords = GetEntityCoords(PlayerPedId())
     local distance = #(coords - vector3(x2, y2, z2))
     
     if distance <= 2 then
-        TriggerServerEvent("rsg-moonshiner:server:getObjectId", object, x2, y2, z2)
+        -- Use the ID directly instead of risky coordinate matching
+        if id then
+            TriggerServerEvent("rsg-moonshiner:server:removePropById", id, object, x2, y2, z2)
+        else
+            -- Fallback for legacy (shouldn't happen with new server code)
+            TriggerServerEvent("rsg-moonshiner:server:getObjectId", object, x2, y2, z2) 
+        end
     end
 end)
 

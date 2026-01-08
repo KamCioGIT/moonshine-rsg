@@ -280,9 +280,12 @@ RegisterNetEvent('rsg-moonshiner:server:placeProp', function(propName, xpos, ypo
     end)
 end)
 
--- Remove Prop (Temporary - doesn't save to database)
-RegisterNetEvent('rsg-moonshiner:server:removeProp', function(id)
+-- Remove Prop (Updated for global cleanup)
+RegisterNetEvent('rsg-moonshiner:server:removeProp', function(id, object, x, y, z)
     MySQL.query('DELETE FROM moonshiner WHERE id = ?', {id})
+    if object and x and y and z then
+         TriggerClientEvent('rsg-moonshiner:client:cleanupProp', -1, object, x, y, z)
+    end
 end)
 
 -- Update Props
@@ -301,11 +304,28 @@ end)
 -- Get Coords ID
 RegisterNetEvent('rsg-moonshiner:server:getCoordsId', function(x, y, z)
     local src = source
+    local pCoords = vector3(x, y, z)
     
     MySQL.query('SELECT * FROM moonshiner', {}, function(result)
         if result and #result > 0 then
+            local found = false
             for _, v in pairs(result) do
-                TriggerClientEvent('rsg-moonshiner:client:getId', src, x, y, z, v.object, v.xpos, v.ypos, v.zpos)
+                -- Check distance server-side to avoid client spam
+                -- "xpos" is stored as a string or number in DB (likely text based on original LIKE usage)
+                -- so tonumber is safer.
+                local dist = #(pCoords - vector3(tonumber(v.xpos), tonumber(v.ypos), tonumber(v.zpos)))
+                
+                -- 2.0 tolerance matches the client's original check, but now we do it here.
+                if dist <= 2.0 then
+                     TriggerClientEvent('rsg-moonshiner:client:getId', src, x, y, z, v.object, v.xpos, v.ypos, v.zpos, v.id)
+                     found = true
+                     -- Assuming props aren't stacked on top of each other, we can break after finding one?
+                     -- But let's check all just in case 2 are very close.
+                end
+            end
+            
+            if not found then
+                 TriggerClientEvent('ox_lib:notify', src, { title = 'Moonshiner', description = 'No barrel found at this location.', type = 'error' })
             end
         end
     end)
@@ -353,21 +373,23 @@ RegisterNetEvent('rsg-moonshiner:server:syncExplosion', function(x, y, z, id)
 end)
 
 
--- Get Object ID
-RegisterNetEvent('rsg-moonshiner:server:getObjectId', function(object, x, y, z)
+-- Remove Prop By ID (New Robust Method)
+RegisterNetEvent('rsg-moonshiner:server:removePropById', function(id, object, x, y, z)
     local src = source
     
-    MySQL.query('SELECT * FROM moonshiner WHERE object = ? AND xpos LIKE ? AND ypos LIKE ? AND zpos LIKE ?', {
-        object,
-        x,
-        y,
-        z
-    }, function(result)
+    MySQL.query('SELECT * FROM moonshiner WHERE id = ?', {id}, function(result)
         if result and #result > 0 then
-            for _, v in pairs(result) do
-                MySQL.update('UPDATE moonshiner SET actif = 0 WHERE id = ?', {v.id})
-                TriggerClientEvent('rsg-moonshiner:client:deleteProp', src, v.id, v.object, v.xpos, v.ypos, v.zpos)
-            end
+            MySQL.update('UPDATE moonshiner SET actif = 0 WHERE id = ?', {id})
+            -- Trigger delete for everyone locally
+            TriggerClientEvent('rsg-moonshiner:client:deleteProp', src, id, object, x, y, z)
+            
+            -- Also properly delete from DB (since updateProp handles actif=0, usually you want it gone if picked up)
+            -- The client calls `removeProp` which does DELETE. But let's verify logic.
+            -- Original `getObjectId` updated `actif=0` then triggered `deleteProp`.
+            -- `deleteProp` client side calls `server:removeProp` which DELETEs.
+            -- We follow the same pattern:
+        else
+             TriggerClientEvent('ox_lib:notify', src, { title = 'Moonshiner', description = 'Could not find prop to remove.', type = 'error' })
         end
     end)
 end)
